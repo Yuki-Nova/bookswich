@@ -1,0 +1,257 @@
+# bookswich — 教材解析·知识库·RAG 问答系统
+
+## 项目概述
+
+教材 PDF → MinerU 解析成 Markdown → 结构重建 → 分块向量化 → 知识库 → 混合检索 + DeepSeek 问答。
+**原则：教材不进 LLM 上下文，知识库只存结构化文本块 + 向量索引，提问时只检索 Top-K 相关块。**
+
+## 测试样本
+
+《医药应用概率统计》第 3 版（科学出版社 2018，高祖新/韩可勤/言方荣 主编），369 页。
+**纯扫描版（读秀/超星）**：无文本层、无 PDF 书签、无印刷目录页。文件名误写为"医药信息检索.pdf"。
+
+## 侦察结论（已实测，2026-08-05）
+
+1. 纯扫描版，PyMuPDF 提取不到任何文本，`get_toc()` 返回 0，前 70 页未见目录页
+2. MinerU 云 API 输出**不带页码**（纯 markdown 流）→ 页码靠分批解析获得
+3. MinerU 标题层级**严重错乱**：章标题「第二章 随机事件和概率」= `##` 与节同级；「上机训练题」= `#` 高于章；封面书名 = `#`
+4. OCR 文本质量高：公式转 LaTeX、表格转 HTML 结构完整
+5. 图片：封面 2 页装饰图可丢弃；正文内容图（SPSS 截图等）保留引用
+6. 结构重建策略：**不信任 MinerU 的 `#` 推断，全部清除后按教材编号体系规则重新打标**
+
+## 技术选型
+
+| 环节 | 选型 | 说明 |
+|------|------|------|
+| 后端 | FastAPI | 异步，流式输出 |
+| 前端 | Vue 3 + Vite + Element Plus | 上传页 + 问答页 |
+| 解析 | MinerU 云 API | 分批 20~30 页/批，落盘缓存 |
+| 向量化 | bge-m3（sentence-transformers 本地） | 中文教材，免费离线 |
+| 向量库 | sqlite-vec 或 ChromaDB | 文件型，零部署 |
+| 关键词检索 | SQLite FTS5（BM25） | 混合检索 |
+| LLM | DeepSeek API | 流式回答 |
+
+## 里程碑
+
+### P0 — 最小闭环（当前，按顺序执行）
+
+- [x] **P0-1 项目骨架**：backend(FastAPI) + frontend(Vue3) 可运行空壳
+- [x] **P0-2 解析服务**：MinerU 分批解析封装 + Markdown 落盘缓存 + 配额记账
+- [x] **P0-3 结构重建管线**：规则打标 + 前置过滤 + 装饰图过滤 + 大纲报告
+- [x] **P0-4 分块器**：按权威标题切块 + 质检
+- [x] **P0-5 检索问答**：FTS5+jieba 实测命中准确；DeepSeek 问答实测通过；
+      向量检索降级 P1（embedding 模型下载受阻：hf-mirror 大文件限速、HF 官方超时、modelscope 无 ONNX 版）
+- [x] **P0-6 端到端验证**：全书 369 页解析入库（15 批，配额 369/1000）+ 6 个问题问答验证全部正确（含公式 LaTeX、章节引用）
+
+### P1 — 体验完善
+
+- [x] **后端上传接口**：multipart 上传 + PyMuPDF 自动检测页数（实测 369 页正确）
+- [x] **Vue 上传页**：文件上传、教材列表、解析进度轮询、配额显示
+- [x] **Vue 问答页**：教材范围切换、markdown 渲染（marked）、引用出处展示
+- [x] **多教材管理**：books 表多记录、问答按教材隔离
+- [ ] **向量检索补回**：embedding 模型（bge-small-zh-v1.5 ONNX 95MB）网络就绪后下载启用混合检索（代码已就绪：vector_search 自动降级，build 接口已容错）
+- [x] **公式渲染（KaTeX）**：markdown-it + markdown-it-texmath 解析阶段渲染 + auto-render 兜底 HTML 表格内公式（验证 PASS）
+- [x] **Markdown 下载**：exporter 服务（rebuilt 结构重建版 / raw 原始合并版），API 下载 + 前端教材列表下载按钮（中文文件名 RFC5987 编码，实测 200）
+- [x] **公式渲染修复**：行内公式空格规范化 + `\(...\)` 定界符修复（KaTeX 全书扫描失败 10→3，剩余为 OCR 截断残缺公式）；Typora 实测通过
+- [x] **表格内容行判定 v2**：结构特征判据（单填充单元格 + 行位置 + $$）替代纯长度启发式——"其中…性质："短行、SPSS 跨列表头区分正确
+- [x] **正式测试套件**：backend/tests/test_exporter.py（pytest，8 用例全绿），`cd backend && .venv\Scripts\python -m pytest tests/ -q`
+- [x] **Typora 大文件优化 B2**：按章导出（chapters 接口 + export?chapter=N，单章 ~114KB）+ 前端章节下拉
+- [x] **问答"未检索到相关内容"修复**：FTS 分词一致性——索引与查询统一 jieba `cut_for_search`（整词+子词都进索引，如"假设检验"→"假设 检验 假设检验"），修复长文本分词上下文导致短语匹配 0 命中；重建 FTS 后 5 词命中 + 端到端问答 3/3
+- [x] **导出策略 v4（用户决策）**：MinerU 表格**原样保留不做内容判断**（仅排版换行防超长行）；公式定界符规范化（行内去内空格 + 块级多行 + `\(...\)` 转普通括号，KaTeX 扫描失败 10→3，余为 OCR 截断）
+- [x] **Typora 大文件优化 B1**：HTML 表格→标准 Markdown 表格（已被 v4 表格保留策略取代，记录备查）
+- [ ] 问答页流式输出（SSE）
+
+### Agentic RAG（P1，2026-08-06 新增，用户指定下一步优先）
+
+> ⚠ **2026-08-06 用户决策：放弃机械 RAG 路线，知识库转 Obsidian 管理。本章节仅作历史记录，不继续执行。**
+
+### 重构：去 RAG 化 · 转 Obsidian 交付（2026-08-06，用户决策，当前任务）
+
+**目标**：bookswich 简化为「教材 PDF → MinerU 解析修正 → 网页下载 Obsidian 笔记」工具，砍掉全部 RAG 知识库问答。
+
+**保留**
+- [x] 上传 PDF + PyMuPDF 页数检测
+- [x] MinerU 分批解析（配额记账、落盘缓存）
+- [x] 结构重建（规则法修正格式）
+- [x] Markdown 导出（rebuilt/raw/按章）
+- [x] 网页下载（教材列表 + 下载按钮 + 章节下拉）
+
+**砍掉（RAG 相关）**
+- [x] RAG-1 检索层：`services/retriever.py`（FTS5+jieba+向量+RRF）→ 删除
+- [x] RAG-2 agent 层：`services/rag_agent.py`（路由/改写/大纲/CRAG/trace）→ 删除
+- [x] RAG-3 API：`/chat`、`/books/{id}/build` → 从 routes.py 删除（实测 404）
+- [x] RAG-4 前端：`ChatPanel.vue`、问答 tab → 删除（App.vue 改单页）
+- [x] RAG-5 评测：`backend/eval/`（golden_set、脚本、报告）→ 删除
+- [x] RAG-6 数据：清空 chunks 表、删 chunks_fts / qa_logs 表、删 `data/vectors/`、删冗余 `backend/kb.db`
+- [x] RAG-7 依赖：移除 fastembed（requirements.txt 已清，代码零引用）
+- [x] RAG-8 配置：`.env` 移除 DEEPSEEK_API_KEY（MINERU_API_KEY 保留），config.py DeepSeek 字段删除
+
+**Obsidian 适配（新增）**
+- [x] OB-0 用户决策：Obsidian 布置由用户自行进行（Hermes + Obsidian 方案，obsidian skill 操作笔记），本项目仅交付标准 Markdown
+- [ ] OB-2 兼容性验证：`$` 公式、HTML 表格在 Obsidian 渲染检查（待用户布置 Obsidian 后验证，暂缓）
+
+**文档同步**
+- [x] DOC-1 requirements.txt / README.md / CLAUDE.md / docs/TODO.md / docs/TECH.md 更新为去 RAG 化状态
+
+**验证（2026-08-06 实测）**
+- [x] pytest（test_exporter 保留）全绿（10 用例）
+- [x] 前端 `npm run build` 通过
+- [x] 端到端：启动后端 → books 列表 ✓ → chapters ✓ → export rebuilt 871KB ✓ → /api/chat 404 ✓ → /api/books/1/build 404 ✓（注意：需先杀 8000 旧进程）
+
+### 图片链路修复（2026-08-06 完成，用户反馈"解析结果没有图片"）
+
+- [x] **IMG-1 诊断**：MinerU markdown 图片是相对路径 `![](images/xxx.jpg)`，字节在 `ExtractResult.images`——旧版只存 markdown 丢了图片（b1 111 张 / b6 455 张引用全无文件）
+- [x] **IMG-2 解析层修复**：`_extract` 透传 images → 落盘 `data/md/<book>/images/`
+- [x] **IMG-3 缓存完整性**：`_batch_complete` 逐批核对 img_path 文件（⚠ 不能只看共享 images/ 目录非空，首次实现导致只补了前几批——第二次修复逐批核对）
+- [x] **IMG-4 导出 zip**：`export_zip` 打包 `书名.md` + 引用的 images/（缺失图优雅跳过）；API 返回 zip；前端按钮改「下载 ZIP」
+- [x] **IMG-5 结构规则加固**：目录行括号页码（`…… (1)`）+ 章标题 `·` 前缀 → 分析化学 18 章完整重建
+- [x] **IMG-6 验证**：b6 455 引用全落盘（MinerU 偶发缺 1），zip 5.6MB 解压结构正确；b1 补图后台进行中
+- [x] **IMG-7 b1 补图收尾**：15/15 完成，111 引用全落盘 0 缺失，清理 1422 个残留旧图；导出 zip 3.4MB 含 110 图（封面装饰图被结构重建过滤，符合预期）
+
+### Obsidian 集成（2026-08-06 完成，vault=本地 Obsidian 教材目录）
+
+- [x] **OB-1 按章拆分导出**：`format=obsidian` zip——`<书名>/00_总览.md`（MOC [[链接]]，无 .md 后缀）+ `NN_<章名>/<章名>.md + images/`（每章只带本章图）
+- [x] **OB-2 一键导入**：`POST /api/books/{id}/import-obsidian` → `<vault>/教材/<书名>/`（OBSIDIAN_VAULT_DIR 配置于 .env，路径穿越防护）
+- [x] **OB-3 前端**：「🗂 Obsidian 版」下载链接 + 「📓 导入 Obsidian」按钮（vault 未配置不显示）+ 头部 vault 连接状态徽标
+- [x] **OB-4 性能验证**：整本 871KB/4 万行 → 每章最大 370KB（第十一章，表格多）其余 ≤150KB，Obsidian 秒开；图片按章分摊
+- [x] **OB-5 实测导入**：b1（11 章/110 图）、b6（18 章/453 图）已写入 vault，MOC 链接规范可用
+
+### 图片转 OSS 外链（2026-08-07 完成，vault 纯文本化为多端同步铺路）
+
+- [x] **OSS-1 配置**：backend/.env 新增 OSS_ACCESS_KEY_ID/SECRET（用户自有 OSS 账号
+      已实测 PUT/HEAD/DELETE 全通）/OSS_BUCKET=<用户桶>/OSS_REGION=<地域>；
+      config.py 新增 oss_configured/oss_endpoint/oss_image_base（可切内网/CDN）
+- [x] **OSS-2 上传器**：services/oss_images.py — OssImageUploader 幂等上传（head 命中跳过），
+      key 规则 `<书名>/images/<hash>.jpg`，URL quote 编码
+- [x] **OSS-3 导出外链**：export_obsidian_zip / export_zip 加 image_mode=local|oss（默认 local 兼容），
+      oss 模式 md 引用改 URL、zip 只含文本（b1 3.4MB→320KB）；routes 加 images 参数 + import-obsidian 默认 oss
+- [x] **OSS-4 测试**：test_exporter 新增 4 用例（URL 改写/无 images/非法参数/未配置报错）全绿 14/14
+- [x] **OSS-5 端到端**：真实导出 b1（110 图上传 16.6s，幂等重导 7.6s 内容一致）、b6（453 图 52.7s）；
+      抽查 OSS URL 全部 200；vault 重导两本书后 11.5MB→2.72MB，无 images/ 残留，脏文件 .jpg.md 清除
+- [x] **OSS-6 前端**：下载/导入按钮统一 images=oss，文案标注「图转 OSS」；npm run build 通过
+- [ ] **OSS-7 已知限制**：b6 第五章 1 张图（290751…jpg）MinerU 缺字节，源数据与 git 历史均无，
+      该引用保留相对路径（裂图），重跑 hash 会变无法对回——记录备查，可接受（0.2%）
+
+### P2 — 进阶（原 RAG 相关条目废弃，保留表格/大纲等非 RAG 项）
+
+- [ ] 章节知识点大纲自动生成（配合复习流程）
+- [ ] 按检索块出练习题
+- [ ] 公式/表格检索专项优化
+- [ ] 本地 MinerU 部署（拿 page_idx 精确页码）
+
+### Obsidian 教材导入插件（P2 远期，2026-08-06 规划，待开发）
+
+在 Obsidian 内直接完成「导入 PDF 教材 → 解析 → 生成 vault 笔记」，不再需要打开网页。
+
+**架构决策**：解析引擎留在 bookswich 后端（MinerU 是 Python，插件是 TS 无法内嵌），
+插件通过 HTTP 调 bookswich API（上传/解析/导入已具备），只做 Obsidian 端 UI 与进度展示。
+
+- [ ] **OBP-1 插件骨架**：manifest.json + main.ts + esbuild 构建（Obsidian 社区插件标准结构，本地安装/BRAT）
+- [ ] **OBP-2 后端适配**：确认 CORS 允许 Obsidian（file:// 或本机）、必要时加简单鉴权 token（MinerU key 不暴露给插件）
+- [ ] **OBP-3 命令与 UI**：命令面板「导入教材 PDF」+ 文件选择模态框 + 解析进度条（轮询 /api/books/{id}）
+- [ ] **OBP-4 导入流程**：调 upload → parse（后台）→ 轮询完成 → 调 import-obsidian（或插件直接复制文件到 vault）→ 提示打开 00_总览.md
+- [ ] **OBP-5 体验**：多教材列表、重复导入检测、失败重试（复用缓存续跑）
+- [ ] **OBP-6 测试发布**：本地 vault 实测导入流程 + 构建发布包
+
+**风险与对策**：
+
+| 风险 | 对策 |
+|------|------|
+| Obsidian 插件 API 学习成本 | 从官方 sample plugin 起步，只做最小命令+模态框 |
+| 后端未启动时插件不可用 | 插件检测后端 health，未启动提示先跑 start.ps1 |
+| 鉴权缺失 | 本机使用可先用 localhost 绑定 + 可选 token 头 |
+| 插件与 bookswich 版本耦合 | API 版本化字段预留（/api/v1 或兼容字段） |
+
+**前置**：一键启动脚本（start.ps1/stop.ps1）已完成，插件可直接复用「后端必先启动」的前提。
+
+## 风险与对策
+
+| 风险 | 对策 |
+|------|------|
+| MinerU 标题错乱 | 结构重建规则法，不信任其推断，全部重打标 |
+| 无目录无书签 | 规则识别教材编号体系（第x章/x.y/一、/（一）），大纲报告人工抽查 |
+| 输出无页码 | 分批解析得页区间，引用给页范围 |
+| 封面/装饰图噪音 | 前置部分过滤 + 版面特征过滤（位置/尺寸/图注） |
+| 结构错误毒数据入库 | 质检关卡：大纲报告确认后才入库，异常章节标记待修 |
+| 配额超限（1000页/天） | 记账 + 失败重试不重复计费 + Markdown 落盘缓存 |
+| 标题规则误判 | 规则调整重跑（零 MinerU 成本），P1 可加 LLM 校正兜底 |
+
+## 数据落盘结构（约定）
+
+```
+data/
+├── raw/          原始 PDF
+├── md/<book>/    分批解析的 Markdown（batch_01.md ...）
+├── build/        重建后的结构化文本（章节 JSON）
+├── kb.db         SQLite（books/chunks/qa_logs）
+├── vectors/      向量库文件
+└── quota.json    每日配额记账
+```
+
+## 生产问题记录（2026-08-07 用户反馈，待后续处理）
+
+1. **导入 Obsidian 报「结构重建产物缺失」**：已解析产物（b3《西方经济学（宏观部分 第7版）》）调用 `import-obsidian` 报错
+   `结构重建产物缺失：<data_dir>/build/b3_西方经济学（宏观部分 第7版） (高鸿业) (z-library.sk, 1lib.sk, z-lib.sk)/structure.json`——
+   疑似解析完成后未跑/未成功跑结构重建，或 build 产物路径与 books 表记录不一致，需排查重建链路
+2. **无章节文件不能导入**：某些文件（无章节结构）无法走 `import-obsidian`；后续收藏论文/单篇资料时会有需求，
+   需支持「无章节兜底导入」（整本一个章节或直接放根目录）
+3. **MinerU 配额规则修正**：实测免费额度不是「1000 页/天」——**优先 2 解析页数每日 1000 页**，
+   解析**总限制每日 5000 份文件**（一份 PDF 无论多少页均按 1 算）。前端/文档的配额文案需同步修正
+
+---
+
+## 开源化改造（2026-08-07 规划，待批准执行，先不改）
+
+**目标**：把高度依赖本地 Obsidian / 个人 OSS / WebDAV 的工具，转为人人可用的开源项目。
+
+**现状个人化依赖**（6 处）：
+
+| 依赖 | 现状 | 开源障碍 |
+|------|------|----------|
+| MinerU API key | .env 配置，uvicorn 不热加载 | 每人需自己申请 key，无引导 |
+| 阿里云 OSS | import-obsidian 强制 oss 模式，未配 OSS 直接 400 | 别人无阿里云账号无法导入 |
+| Obsidian vault 路径 | OBSIDIAN_VAULT_DIR 服务器本地目录 | 别人可能不用 Obsidian 或只想下 zip |
+| 配置形态 | 全靠 .env | 改配置需重启进程 |
+| 部署形态 | start.ps1 本地双进程，无 Docker | clone 需装 Python+Node 两套环境 |
+| 仓库 | 无 git，库内含测试 PDF/解析产物 | 无法分发与贡献 |
+
+### P0 — 去个人化（别人能用）
+
+- [ ] **OPEN-1 MinerU key 网页端填入**：存 data/mineru_key.json，优先于 .env，解析线程现读生效（保存即生效，免重启）；无 key 时前端引导申请
+- [ ] **OPEN-2 OSS 降为可选增强**：未配 OSS 时图片走 local（zip 内 images/）；import-obsidian 同时支持带图目录版，不再强制 oss
+- [ ] **OPEN-3 Obsidian 路径降为可选便利**：默认主路径 = 下载 Obsidian 版 zip 自行拖入 vault；import-obsidian 仅本机/自托管场景显示
+- [ ] **OPEN-4 首次引导**：无 key 时前端显示申请链接 + 填框，替代干巴巴的「未配置」警告
+- [ ] **OPEN-5 清理库内个人数据**：测试 PDF（testbook/verify_upload）与解析产物不入库；data/.gitignore + 示例结构
+- [ ] **OPEN-6 .env.example 全量注释化**
+
+### P0 — 开源要素
+
+- [ ] **OPEN-7 git init + LICENSE(MIT) + 初始提交**
+- [ ] **OPEN-8 Dockerfile + docker-compose**：后端 + 前端 build 产物 + data/ 数据卷，一条命令起
+- [ ] **OPEN-9 单端口部署**：Vite build 产物由 FastAPI StaticFiles 托管，替代双进程双端口
+- [ ] **OPEN-10 CI**：GitHub Actions 跑 pytest + 前端 build
+- [ ] **OPEN-11 README 重写**：Docker 快速开始、截图、FAQ、MinerU key 申请引导
+
+### P1 — 通用化（好用）
+
+- [ ] **OPEN-12 存储抽象层**：图片/产物 provider 接口 —— local / 阿里云 OSS / S3 兼容 / WebDAV（覆盖用户个人栈的依赖，转成通用能力）
+- [ ] **OPEN-13 鉴权（可选）**：自托管场景 Token 认证；本地默认无鉴权但文档写明风险
+- [ ] **OPEN-14 i18n** 中英文界面（视目标受众再定）
+
+### P2 — 生态
+
+- [ ] **OPEN-15 Obsidian 导入插件**（复用 OBP-1~6 既有规划）
+- [ ] **OPEN-16 GitHub Pages 文档站**
+
+**待定决策**：
+1. 定位：纯本地单机工具（推荐）vs 可服务器自托管（需鉴权）——建议两者兼容：默认本地跑，Docker 可选部署，鉴权做成可选
+2. 存储抽象第一版范围：只做 local + S3 兼容（覆盖 OSS/各云），WebDAV 排后，避免为抽象而抽象
+3. 执行顺序：MinerU key 网页化收尾 → P0 开源要素（git/LICENSE/Docker/单端口）→ 降 OSS 依赖
+
+**风险**：
+- MinerU 云 API 免费额度 1000 页/天，开源后使用者自备 key，需文档引导
+- OSS 图片流量费由使用者自担（同地域内网 endpoint 免公网流量，既有方案可复用）
+- 无鉴权是公网部署隐患，自托管必须启用可选认证
+- 存储抽象过度设计风险：第一版只做 local + S3 兼容
+
+**状态**：规划已落盘，未批准执行，不修改任何代码。

@@ -1,0 +1,35 @@
+# ── 凭据与配置 ─────────────────────────────
+backend/.env
+.env
+*.env.local
+*.env.*.local
+
+# ── 解析产物 / 教材数据（隐私 + 体积） ──────
+data/
+export/
+
+# 测试残留 PDF（根目录）
+*.pdf
+
+# ── Python ─────────────────────────────────
+backend/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# ── Node / 前端 ────────────────────────────
+frontend/node_modules/
+frontend/dist/
+
+# ── 日志 ───────────────────────────────────
+*.log
+logs/
+
+# ── 编辑器 / 系统 ──────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── 文档附件（UI 截图，含个人书目数据） ─────
+docs/ui-v1-*.png

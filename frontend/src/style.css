@@ -1,0 +1,481 @@
+/* ── bookswich · Vercel 设计语言 ─────────────────────────────
+   token: 白底 #fff / 近黑 #171717 / 正文 #4d4d4d / 链接蓝 #0072f5
+   shadow-as-border: 0 0 0 1px rgba(0,0,0,.08)（不用传统 border 做卡片边）
+   权重只 400/500/600；圆角 8px(卡)/6px(钮)；pill 只用于徽标
+   ───────────────────────────────────────────────────────── */
+
+:root {
+  /* 色板（achromatic + 功能色） */
+  --bg: #ffffff;
+  --bg-subtle: #fafafa;
+  --text: #171717;
+  --text-secondary: #4d4d4d;
+  --text-muted: #868686;
+  --border-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+  --card-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.08),
+    0 2px 2px rgba(0, 0, 0, 0.04),
+    0 0 0 1px #fafafa;
+  --card-shadow-hover:
+    0 0 0 1px rgba(0, 0, 0, 0.12),
+    0 4px 8px rgba(0, 0, 0, 0.06),
+    0 0 0 1px #fafafa;
+  /* 功能色（只用于状态/流程标记） */
+  --blue: #0a72ef;
+  --blue-bg: #ebf5ff;
+  --green: #007a45;
+  --green-bg: #e8f8f0;
+  --red: #e5484d;
+  --red-bg: #fdebec;
+  --purple: #7c3aed;
+  --purple-bg: #f3edfe;
+  --amber: #b45309;
+  --amber-bg: #fef3c7;
+
+  /* 字体 */
+  --font-sans: 'Geist', system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', Roboto, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, 'Cascadia Code', Consolas, monospace;
+
+  /* 间距系统 */
+  --r-lg: 12px;
+  --r-md: 8px;
+  --r-sm: 6px;
+  --gap: 12px;
+  --page-w: 880px;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-font-smoothing: antialiased; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+}
+
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── 页面骨架 ─────────────────────────────── */
+
+.page {
+  max-width: var(--page-w);
+  margin: 0 auto;
+  padding: 0 20px 72px;
+}
+
+/* 顶部导航（sticky） */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+  margin-bottom: 36px;
+}
+
+.nav-inner {
+  max-width: var(--page-w);
+  margin: 0 auto;
+  padding: 0 20px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.4px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.brand-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  background: var(--text);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.brand-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-stats {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* pill 徽标（只用于状态/信息） */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+  white-space: nowrap;
+}
+
+.pill.blue { background: var(--blue-bg); color: var(--blue); box-shadow: 0 0 0 1px rgba(10, 114, 239, 0.14); }
+.pill.purple { background: var(--purple-bg); color: var(--purple); box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.16); }
+.pill.amber { background: var(--amber-bg); color: var(--amber); box-shadow: 0 0 0 1px rgba(180, 83, 9, 0.16); }
+.pill.green { background: var(--green-bg); color: var(--green); box-shadow: 0 0 0 1px rgba(0, 122, 69, 0.14); }
+.pill.red { background: var(--red-bg); color: var(--red); box-shadow: 0 0 0 1px rgba(229, 72, 77, 0.14); }
+
+.pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* 页面标题区 */
+.hero { margin: 8px 0 28px; }
+
+.hero h1 {
+  margin: 0 0 4px;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -1.2px;
+  line-height: 1.15;
+}
+
+.hero p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+/* ── 通用卡片 ─────────────────────────────── */
+
+.card {
+  background: #fff;
+  border-radius: var(--r-lg);
+  box-shadow: var(--card-shadow);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.card h2 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+}
+
+.card h3 {
+  margin: 24px 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text);
+}
+
+.card h3:first-child { margin-top: 0; }
+
+/* ── 上传区（拖拽卡片） ────────────────────── */
+
+.upload-zone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 36px 20px;
+  border-radius: var(--r-lg);
+  border: 1.5px dashed rgba(0, 0, 0, 0.18);
+  background: var(--bg-subtle);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  text-align: center;
+}
+
+.upload-zone:hover,
+.upload-zone.dragover {
+  border-color: var(--blue);
+  background: var(--blue-bg);
+  box-shadow: 0 0 0 3px rgba(10, 114, 239, 0.12);
+}
+
+.upload-zone input[type='file'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.upload-icon {
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-secondary);
+}
+
+.upload-title { font-weight: 500; color: var(--text); }
+
+.upload-hint { font-size: 12px; color: var(--text-muted); }
+
+.upload-file {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--blue);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+/* 上传动作行 */
+.upload-actions {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ── 按钮 ─────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: var(--r-sm);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  border: none;
+  background: var(--text);
+  color: #fff;
+  transition: background 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn:hover { background: #000; }
+
+.btn:disabled {
+  background: #d4d4d4;
+  color: #fff;
+  cursor: not-allowed;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--text);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.14);
+}
+
+.btn.ghost:hover { background: var(--bg-subtle); }
+
+.btn.ghost:disabled { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08); background: transparent; color: var(--text-muted); }
+
+.btn.purple { background: var(--purple); }
+.btn.purple:hover { background: #6d28d9; }
+.btn.purple:disabled { background: #a78bfa; }
+
+/* 链接型小按钮（表格操作） */
+.link-btn {
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 500;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-family: inherit;
+}
+
+.link-btn:hover { text-decoration: underline; background: none; }
+
+.link-btn.muted { color: var(--text-secondary); }
+.link-btn.purple { color: var(--purple); }
+
+/* ── 消息 ─────────────────────────────────── */
+
+.msg {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.msg.ok { color: var(--green); }
+.msg.err { color: var(--red); }
+
+/* ── 教材列表（卡片行，替代硬表格） ────────── */
+
+.book-list { display: flex; flex-direction: column; gap: 12px; }
+
+.book-card {
+  border-radius: var(--r-md);
+  box-shadow: var(--border-shadow);
+  padding: 16px 18px;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  background: #fff;
+}
+
+.book-card:hover {
+  box-shadow: var(--card-shadow-hover);
+}
+
+.book-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.book-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  flex: 1;
+  min-width: 200px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.book-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.book-meta .sep { opacity: 0.5; }
+
+.book-ops {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.book-ops .grow { flex: 1; }
+
+/* 章节选择 */
+.chapter-select {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.14);
+  background: #fff;
+  color: var(--text);
+  max-width: 200px;
+  cursor: pointer;
+}
+
+/* 解析进度条 */
+.prog {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0 0;
+}
+
+.bar {
+  flex: 1;
+  height: 6px;
+  background: #ececec;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  background: var(--blue);
+  border-radius: 999px;
+  transition: width 0.5s ease;
+}
+
+.prog-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+/* 解析中卡片顶部细条 */
+.book-card.parsing {
+  box-shadow:
+    0 0 0 1px rgba(10, 114, 239, 0.35),
+    0 4px 12px rgba(10, 114, 239, 0.08);
+}
+
+/* 空状态 */
+.empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.empty .big { font-size: 26px; display: block; margin-bottom: 8px; }
+
+/* 旧表格类保留（未用但避免样式断裂） */
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 6px 8px; }
+
+/* 动画 */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.book-card, .card, .hero { animation: fadeInUp 0.3s ease both; }
+.book-card:nth-child(2) { animation-delay: 0.04s; }
+.book-card:nth-child(3) { animation-delay: 0.08s; }
+.book-card:nth-child(4) { animation-delay: 0.12s; }
+
+/* ── 响应式 ───────────────────────────────── */
+
+@media (max-width: 640px) {
+  .page { padding: 0 14px 48px; }
+  .hero h1 { font-size: 24px; letter-spacing: -0.8px; }
+  .brand-sub { display: none; }
+  .nav-stats .pill.hide-mobile { display: none; }
+  .card { padding: 18px 16px; }
+  .book-title { font-size: 14px; }
+  .book-ops { gap: 2px; }
+  .chapter-select { max-width: 140px; }
+}

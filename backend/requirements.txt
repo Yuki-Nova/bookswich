@@ -1,0 +1,11 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-dotenv>=1.0
+pydantic>=2.7
+pydantic-settings>=2.3
+httpx>=0.27
+python-multipart>=0.0.9
+mineru_open_sdk>=0.2.5
+pymupdf>=1.24
+oss2>=2.18
+pytest>=9.0

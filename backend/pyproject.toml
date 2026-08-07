@@ -1,0 +1,9 @@
+[project]
+name = "bookswich-backend"
+version = "0.1.0"
+description = "bookswich 教材解析知识库后端"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>复习流程信息流</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: white;
+    }
+
+    .container { max-width: 1200px; margin: 0 auto; }
+
+    .header { margin-bottom: 2rem; }
+
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+
+    .pulse-dot {
+      width: 12px; height: 12px;
+      background: #22d3ee;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+
+    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
+
+    .diagram-container {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 1rem;
+      border: 1px solid #1e293b;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+
+    svg { width: 100%; min-width: 900px; display: block; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+
+    .card {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 0.75rem;
+      border: 1px solid #1e293b;
+      padding: 1.25rem;
+    }
+
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card-dot.amber { background: #fbbf24; }
+    .card-dot.rose { background: #fb7185; }
+
+    .card h3 { font-size: 0.875rem; font-weight: 600; }
+
+    .card ul { list-style: none; }
+    .card li { color: #94a3b8; font-size: 0.75rem; margin-bottom: 0.4rem; }
+
+    .footer {
+      color: #475569;
+      font-size: 0.75rem;
+      margin-top: 1.5rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>复习流程信息流</h1>
+      </div>
+      <p class="subtitle">bookswich → Obsidian vault → Hermes 复习 → llm-wiki 记忆层 → 完整笔记</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1100 800" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+          <marker id="arrow-cyan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#22d3ee"/>
+          </marker>
+          <marker id="arrow-emerald" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#34d399"/>
+          </marker>
+          <marker id="arrow-violet" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#a78bfa"/>
+          </marker>
+          <marker id="arrow-slate" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+          </marker>
+        </defs>
+
+        <!-- Background -->
+        <rect width="1100" height="800" fill="url(#grid)"/>
+
+        <!-- ═══ 1. bookswich 解析流水线（emerald）═══ -->
+        <rect x="60" y="50" width="340" height="100" rx="6" fill="#0f172a" stroke="#34d399" stroke-width="1.5"/>
+        <rect x="60" y="50" width="340" height="100" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="80" y="78" fill="#34d399" font-size="12" font-weight="600">bookswich 解析流水线</text>
+        <text x="80" y="98" fill="#94a3b8" font-size="9">PDF 教材 → MinerU 分批解析</text>
+        <text x="80" y="114" fill="#94a3b8" font-size="9">→ 结构重建 → 导出 Markdown</text>
+        <text x="80" y="134" fill="#64748b" font-size="8">data/md + build + kb.db</text>
+
+        <!-- ═══ 2. Obsidian vault（violet 数据库）═══ -->
+        <rect x="640" y="50" width="340" height="100" rx="6" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"/>
+        <rect x="640" y="50" width="340" height="100" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="660" y="78" fill="#a78bfa" font-size="12" font-weight="600">Obsidian vault（唯一事实源）</text>
+        <text x="660" y="98" fill="#94a3b8" font-size="9">教材/&lt;书名&gt;/ 按章拆分 + 00_总览 MOC</text>
+        <text x="660" y="114" fill="#94a3b8" font-size="9">只读 · WebDAV 自动同步（多端）</text>
+        <text x="660" y="134" fill="#64748b" font-size="8">服务器: /srv/obsidian-vault/obsidian（WebDAV 同步）</text>
+
+        <!-- 箭头 1：bookswich → vault -->
+        <line x1="400" y1="100" x2="632" y2="100" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+        <text x="470" y="86" fill="#34d399" font-size="8" text-anchor="middle">导出 Obsidian 格式</text>
+        <text x="470" y="122" fill="#64748b" font-size="8" text-anchor="middle">import-obsidian 导入 WebDAV 目录</text>
+
+        <!-- ═══ 3. Hermes 复习会话（cyan 前端）═══ -->
+        <rect x="330" y="260" width="440" height="110" rx="6" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"/>
+        <rect x="330" y="260" width="440" height="110" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="350" y="290" fill="#22d3ee" font-size="12" font-weight="600">Hermes 复习会话（核心枢纽）</text>
+        <text x="350" y="312" fill="#94a3b8" font-size="9">调取教材 → 问答练习 → 提炼知识点</text>
+        <text x="350" y="330" fill="#94a3b8" font-size="9">专项题目练习 · 严谨回答 · 不胡编</text>
+        <text x="350" y="352" fill="#64748b" font-size="8">先出大纲 → 边复习边问答 → 收尾整理</text>
+
+        <!-- 箭头 2：vault → Hermes（最高优先级） -->
+        <path d="M 810 150 L 810 210 L 570 210 L 570 252" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+        <text x="815" y="190" fill="#a78bfa" font-size="8">调取教材</text>
+        <text x="815" y="202" fill="#64748b" font-size="8">最高优先级</text>
+
+        <!-- ═══ 4. llm-wiki 记忆层（violet）═══ -->
+        <rect x="60" y="450" width="340" height="120" rx="6" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"/>
+        <rect x="60" y="450" width="340" height="120" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="80" y="478" fill="#a78bfa" font-size="12" font-weight="600">llm-wiki 记忆层（Hermes 专用）</text>
+        <text x="80" y="500" fill="#94a3b8" font-size="9">SCHEMA / index / log + raw/</text>
+        <text x="80" y="518" fill="#94a3b8" font-size="9">concepts / entities / comparisons / queries</text>
+        <text x="80" y="540" fill="#64748b" font-size="8">frontmatter + wikilink + 受控标签</text>
+        <text x="80" y="556" fill="#64748b" font-size="8">WIKI_PATH=/path/to/llm-wiki（vault 外）</text>
+
+        <!-- ═══ 5. 其他来源（slate 外部）═══ -->
+        <rect x="640" y="450" width="340" height="120" rx="6" fill="#0f172a" stroke="#94a3b8" stroke-width="1.5"/>
+        <rect x="640" y="450" width="340" height="120" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="660" y="478" fill="#94a3b8" font-size="12" font-weight="600">其他来源（扩展）</text>
+        <text x="660" y="500" fill="#94a3b8" font-size="9">其他教材 · 文献 · 网络资料</text>
+        <text x="660" y="518" fill="#94a3b8" font-size="9">允许扩展，但必须标明出处</text>
+        <text x="660" y="540" fill="#64748b" font-size="8">优先级低于 Obsidian 教材</text>
+
+        <!-- 箭头 3：Hermes → llm-wiki（提炼） -->
+        <path d="M 430 370 L 430 405 L 240 405 L 240 442" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+        <text x="438" y="395" fill="#22d3ee" font-size="8">提炼知识点</text>
+        <text x="438" y="407" fill="#64748b" font-size="8">[[obsidian:...]] 溯源</text>
+
+        <!-- 箭头 4：Hermes ↔ 其他来源（双向） -->
+        <path d="M 700 370 L 700 405 L 810 405 L 810 442" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow-slate)"/>
+        <path d="M 820 370 L 820 405 L 822 405 L 822 442" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-start="url(#arrow-slate)"/>
+        <text x="755" y="395" fill="#94a3b8" font-size="8" text-anchor="middle">扩展（标出处）</text>
+
+        <!-- ═══ 6. 完整复习笔记（emerald）═══ -->
+        <rect x="330" y="640" width="440" height="100" rx="6" fill="#0f172a" stroke="#34d399" stroke-width="1.5"/>
+        <rect x="330" y="640" width="440" height="100" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="350" y="668" fill="#34d399" font-size="12" font-weight="600">完整复习笔记（产出）</text>
+        <text x="350" y="690" fill="#94a3b8" font-size="9">含细节知识点的完整 md（大纲 + 问答 + 提炼）</text>
+        <text x="350" y="710" fill="#94a3b8" font-size="9">一科一册 · 沉淀到知识库</text>
+        <text x="350" y="728" fill="#64748b" font-size="8">复习结束整理，随时回查</text>
+
+        <!-- 箭头 5：llm-wiki → 笔记（素材回流） -->
+        <path d="M 250 570 L 250 610 L 440 610 L 440 632" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+        <text x="256" y="600" fill="#a78bfa" font-size="8">积累素材</text>
+
+        <!-- 箭头 6：Hermes → 笔记（收尾） -->
+        <path d="M 550 370 L 550 632" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+        <text x="560" y="500" fill="#34d399" font-size="8">复习结束整理输出</text>
+
+        <!-- Legend（必须放在所有边界外，底部） -->
+        <rect x="60" y="700" width="16" height="10" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="82" y="708" fill="#94a3b8" font-size="8">Hermes 会话</text>
+
+        <rect x="170" y="700" width="16" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+        <text x="192" y="708" fill="#94a3b8" font-size="8">产出/流水线</text>
+
+        <rect x="280" y="700" width="16" height="10" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="302" y="708" fill="#94a3b8" font-size="8">知识库存储</text>
+
+        <rect x="400" y="700" width="16" height="10" rx="2" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+        <text x="422" y="708" fill="#94a3b8" font-size="8">外部来源</text>
+
+        <line x1="520" y1="705" x2="536" y2="705" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+        <text x="542" y="708" fill="#94a3b8" font-size="8">信息流方向</text>
+      </svg>
+    </div>
+
+    <!-- Info Cards -->
+    <div class="cards">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h3>铁律</h3>
+        </div>
+        <ul>
+          <li>• 教材保持原样（事实源只读）</li>
+          <li>• wiki 绝不建进 vault（WebDAV 同步）</li>
+          <li>• 记忆层只有 Hermes 用</li>
+          <li>• 引用教材用 [[obsidian:教材/...]]</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h3>信息流要点</h3>
+        </div>
+        <ul>
+          <li>• Obsidian 教材 = 最高优先级依据</li>
+          <li>• 其他来源可扩展，必须标出处</li>
+          <li>• 复习时实时提炼进 llm-wiki</li>
+          <li>• 结束整理完整笔记 md</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>同步链路（WebDAV）</h3>
+        </div>
+        <ul>
+          <li>• bookswich 导入 → WebDAV 同步目录</li>
+          <li>• Obsidian Remotely Save 自动同步</li>
+          <li>• 多端增量拉取，无需手动下载</li>
+          <li>• 图片转 OSS 外链，vault 纯文本</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>记忆层积累</h3>
+        </div>
+        <ul>
+          <li>• concepts 页：frontmatter + wikilink</li>
+          <li>• 标签受控（SCHEMA taxonomy）</li>
+          <li>• 薄弱知识点标 confidence: low</li>
+          <li>• 每次操作登记 index.md + log.md</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <p class="footer">
+      复习体系信息流 • 2026-08-07 • Hermes Agent
+    </p>
+  </div>
+</body>
+</html>
