@@ -51,7 +51,8 @@ class Settings(BaseSettings):
 
     @property
     def oss_configured(self) -> bool:
-        return bool(self.oss_access_key_id and self.oss_access_key_secret)
+        # key/secret/桶 三者齐备才算配置完整（缺桶会拼出非法 endpoint，提前报错更直观）
+        return bool(self.oss_access_key_id and self.oss_access_key_secret and self.oss_bucket)
 
     @property
     def oss_endpoint(self) -> str:
