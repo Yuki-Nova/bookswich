@@ -33,4 +33,4 @@ logs/
 Thumbs.db
 
 # ── 文档附件（UI 截图，含个人书目数据） ─────
-docs/ui-v1-*.png
+docs/ui-v*.png

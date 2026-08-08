@@ -129,6 +129,56 @@ async def list_books():
     return {"books": [dict(r) for r in rows]}
 
 
+@router.delete("/books/{book_id}")
+async def delete_book(book_id: int):
+    """删除教材：移除服务器上全部相关遗留文件（raw PDF + md/ + build/）并删除 db 记录。
+
+    返回删除的文件/目录清单（可安全重试——文件不存在时静默跳过）。
+    """
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM books WHERE id=?", (book_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "book not found")
+        if row["parse_status"] == "parsing":
+            raise HTTPException(409, "解析进行中，无法删除")
+
+    removed = {"raw": [], "md": [], "build": []}
+
+    # 1) 原始 PDF（raw_path 可能是服务器任意路径，仅删除位于 data/raw/ 内的文件，防路径穿越）
+    if row["raw_path"]:
+        raw = Path(row["raw_path"])
+        try:
+            raw_rel = raw.resolve().relative_to(settings.raw_dir.resolve())
+        except ValueError:
+            raw_rel = None
+        if raw_rel is not None and raw.exists():
+            raw.unlink(missing_ok=True)
+            removed["raw"].append(str(raw))
+
+    # 2) 解析产物 data/md/b{id}_{title}/
+    md_dir = settings.md_dir / f"b{book_id}_{row['title']}"
+    if md_dir.exists():
+        shutil.rmtree(md_dir)
+        removed["md"].append(str(md_dir))
+
+    # 3) 结构重建产物 data/build/b{id}_{title}/
+    build_dir = settings.build_dir / f"b{book_id}_{row['title']}"
+    if build_dir.exists():
+        shutil.rmtree(build_dir)
+        removed["build"].append(str(build_dir))
+
+    # 4) db 记录
+    with get_conn() as conn:
+        conn.execute("DELETE FROM books WHERE id=?", (book_id,))
+
+    return {
+        "status": "ok",
+        "book_id": book_id,
+        "title": row["title"],
+        "removed": removed,
+    }
+
+
 # ── 解析 ──────────────────────────────────────────────
 
 

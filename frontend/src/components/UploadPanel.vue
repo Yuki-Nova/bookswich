@@ -12,6 +12,7 @@ const parsing = ref(false)
 const progress = ref('')
 const chapterMaps = ref({})   // bookId -> [{no, title}]
 const importingId = ref(null) // 正在导入 Obsidian 的书
+const deletingId = ref(null)  // 正在删除的书
 const dragOver = ref(false)
 
 let timer = null
@@ -153,6 +154,25 @@ async function importObsidian(b) {
 function isReady(b) {
   return b.parse_status === 'parsed' || b.parse_status === 'structure_ok'
 }
+
+// 删除教材：清服务器遗留文件（raw PDF + md/ + build/）+ db 记录
+async function deleteBook(b) {
+  if (b.parse_status === 'parsing') return
+  if (!confirm(`删除《${b.title}》？\n将移除服务器上该教材的全部解析产物（PDF、批次 md、结构重建产物），不可恢复。`)) return
+  deletingId.value = b.id
+  uploadingMsg.value = ''
+  try {
+    const r = await fetch(`/api/books/${b.id}`, { method: 'DELETE' })
+    const d = await r.json()
+    if (!r.ok) throw new Error(d.detail || '删除失败')
+    uploadingMsg.value = { text: `🗑 已删除《${b.title}》`, ok: true }
+    emit('changed')
+  } catch (e) {
+    uploadingMsg.value = { text: `删除失败：${e.message}`, ok: false }
+  } finally {
+    deletingId.value = null
+  }
+}
 </script>
 
 <template>
@@ -233,7 +253,18 @@ function isReady(b) {
                  :href="`/api/books/${b.id}/export?format=rebuilt&chapter=${b._ch}`" download>
                 章节 ZIP
               </a>
+              <span class="grow"></span>
+              <button class="link-btn" :class="{ muted: b.parse_status === 'parsing' }"
+                      :disabled="b.parse_status === 'parsing' || deletingId === b.id"
+                      @click="deleteBook(b)" title="删除该教材全部解析产物">
+                {{ deletingId === b.id ? '删除中…' : '🗑 删除' }}
+              </button>
             </template>
+            <button v-if="!isReady(b) && b.parse_status !== 'parsing'"
+                    class="link-btn" :disabled="deletingId === b.id" @click="deleteBook(b)"
+                    title="删除该教材全部解析产物">
+              {{ deletingId === b.id ? '删除中…' : '🗑 删除' }}
+            </button>
           </div>
         </div>
       </div>

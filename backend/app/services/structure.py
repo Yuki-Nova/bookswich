@@ -162,6 +162,74 @@ def _split_lines_with_tables(text: str) -> list[str]:
 
 # ── 结构重建 ──────────────────────────────────────────
 
+def _norm_title(t: str) -> str:
+    """标题归一化：去公式定界符/空格，统一破折号与全角符号，用于目录 vs 正文标题匹配。"""
+    t = re.sub(r"[$\\]", "", t)          # 去 $ 和反斜杠（LaTeX 公式）
+    t = t.replace(" ", "").replace("\u3000", "")
+    t = t.replace("—", "-").replace("－", "-").replace("—", "-")
+    t = t.replace("：", ":").replace("；", ";").replace("，", ",")
+    t = t.replace("（", "(").replace("）", ")").replace("“", '"').replace("”", '"')
+    return t
+
+
+def _extract_toc_titles(batches: list[dict]) -> set[str]:
+    """从目录页提取章节标题集合（去编号、去页码），用于 hash 兜底过滤。
+
+    目录行格式：'第十二章 宏观经济的基本指标及其衡量 …… 363'
+    提取出的标题如 '宏观经济的基本指标及其衡量'。找不到目录页时返回空集。
+    """
+    titles: set[str] = set()
+    in_toc = False
+    for batch in batches:
+        for raw_line in _split_lines_with_tables(batch["text"]):
+            line = raw_line.strip()
+            if not line:
+                continue
+            # 进入目录区：'## 目录' 或 '目 录'
+            if not in_toc and (line == "目录" or line == "目 录" or line.lstrip("#").strip() == "目录"):
+                in_toc = True
+                continue
+            if not in_toc:
+                continue
+            m = re.match(rf"^第{CH_NUM}章\s+(.+?)\s*[…….]+\s*(?:（?\d+）?)?\s*$", line)
+            if m:
+                t = m.group(1).strip()
+                # 去掉尾部多余标点/页码残留
+                t = re.sub(r"\s*[.…]\s*$", "", t).strip()
+                if t:
+                    titles.add(_norm_title(t))
+    return titles
+
+
+def _detect_chapter_style(batches: list[dict]) -> tuple[str, set[str]]:
+    """判断章标题风格：'numbered'（第x章）/ 'hash'（MinerU # 标题，无编号教材）。
+
+    统计全书 '第x章' 标题数与 '#' 标题数：编号标题 >0 用编号规则；
+    编号为 0 且 # 标题 >=3 时回退用 # 标题兜底（如《西方经济学 宏观部分》正文章标题无编号）。
+    返回 (风格, 目录页章节标题集合) —— hash 风格时用集合过滤伪章标题。
+    """
+    numbered = 0
+    hashed = 0
+    for batch in batches:
+        for raw_line in _split_lines_with_tables(batch["text"]):
+            line = raw_line.strip()
+            if RE_TOC_LINE.match(line):
+                continue
+            stripped = RE_HASH.sub("", line).strip()
+            if not stripped:
+                continue
+            if RE_CH_LEVEL1.match(stripped):
+                numbered += 1
+            elif line.lstrip().startswith("#") and RE_BOARD.match(stripped) is None:
+                hashed += 1
+    toc = _extract_toc_titles(batches)
+    if numbered > 0:
+        return "numbered", toc
+    if hashed >= 3:
+        return "hash", toc
+    return "numbered", toc
+
+
 def rebuild(batches: list[dict]) -> dict:
     """主流程：返回 structure dict。
 
@@ -184,6 +252,7 @@ def rebuild(batches: list[dict]) -> dict:
     pre_matter_parts: list[str] = []
     skipped: list[str] = []
     in_pre_matter = True
+    style, toc_titles = _detect_chapter_style(batches)
 
     def _new_board(title: str, page_range: str) -> dict:
         return {
@@ -222,6 +291,27 @@ def rebuild(batches: list[dict]) -> dict:
                 continue
 
             heading = classify_heading(line)
+
+            # ── 兜底：无编号教材（第x章识别数=0），MinerU # 一级标题当章标题 ──
+            if heading is None and style == "hash":
+                stripped = RE_HASH.sub("", line).strip()
+                if (
+                    line.lstrip().startswith("#")
+                    and stripped
+                    and RE_BOARD.match(stripped) is None
+                    and not RE_TOC_LINE.match(line)
+                    and not RE_CH_LEVEL1_AR.match(stripped)
+                    and not RE_LEVEL2_JIE.match(stripped)
+                    # 目录页清单过滤：只有目录里出现过的标题才当章（防封面/序言/小节误判）
+                    and (not toc_titles or _norm_title(stripped) in toc_titles)
+                ):
+                    heading = Heading(1, stripped.lstrip("#").strip(), 0, kind="hash")
+
+            # ── hash 风格统一过滤：阿拉伯数字章（如 "21 世纪经济学系列教材"）也在 toc 清单内才当章 ──
+            if style == "hash" and heading is not None and heading.level == 1 and toc_titles:
+                h_title = _norm_title(heading.title.lstrip("·•").strip())
+                if h_title not in toc_titles:
+                    heading = None  # 非目录页列出的标题（封面丛书名/孤立编号行）不当章
 
             # ── 特殊板块区域：区域内所有标题行降级为内容，直到下一章/新板块 ──
             if board_node is not None:
