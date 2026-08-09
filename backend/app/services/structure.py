@@ -18,15 +18,17 @@ from ..config import settings
 
 # ── 标题模式 ──────────────────────────────────────────
 
-CH_NUM = r"[一二三四五六七八九十百零〇]+"
-RE_CH_LEVEL1 = re.compile(rf"^\s*[·•]?\s*第{CH_NUM}章\s+\S")   # 容忍 MinerU 偶发 "· 第x章" 前缀
+CN_NUM = r"[一二三四五六七八九十百零〇]+"
+# 支持阿拉伯数字（第1章/第 3 章）+ 容忍数字与章字间空格
+CN_OR_AR = r"(?:[一二三四五六七八九十百零〇]+|\d{1,3})"
+RE_CH_LEVEL1 = re.compile(rf"^\s*[·•]?\s*第\s*{CN_OR_AR}\s*章\s+\S")
 # 阿拉伯数字章标题（"1 概论"、"2 药物的纯度检查…"），短标题防误伤正文数字开头行；
 # 数字后必须跟非数字（排除 "3 400～2 400(s, 宽)" 这类光谱数据行），且不含 ～/~
 RE_CH_LEVEL1_AR = re.compile(r"^\s*\d{1,2}\s+[^\d\s～~].{0,20}$")
-RE_LEVEL2_JIE = re.compile(rf"^\s*第{CH_NUM}节\s+\S")                  # 第一节/第二节
+RE_LEVEL2_JIE = re.compile(rf"^\s*第\s*{CN_OR_AR}\s*节\s+\S")          # 第一节/第1节/第 2 节
 RE_LEVEL2_DOT = re.compile(r"^\s*(\d+)\.(\d+)(\.\d+)?\s+\S")          # 2.1 / 2.1.3
-RE_LEVEL2_CN = re.compile(rf"^\s*{CH_NUM}、\S")                        # 一、
-RE_LEVEL3 = re.compile(rf"^\s*[（(]{CH_NUM}[）)]\s*\S")                # （一）
+RE_LEVEL2_CN = re.compile(rf"^\s*{CN_NUM}、\S")                       # 一、
+RE_LEVEL3 = re.compile(rf"^\s*[（(]\s*{CN_OR_AR}\s*[）)]\s*\S")        # （一）/ (1) / （ 2 ）
 RE_BOARD = re.compile(
     r"^\s*(思考与练习|习题|上机训练题|内容提要|本章内容提要|参考答案|知识拓展|知识链接|"
     r"SPSS软件应用提要|附录|索引|参考文献|目录|目\s*录)\s*[一二三四五六七八九十\d]*\s*$"
@@ -35,7 +37,7 @@ RE_BOARD = re.compile(
 # 页码可能带括号："第一章 误差和分析数据处理…… (1)"（分析化学等教材目录格式）
 # 数字章节目录行："1.1 药物质量的评价 …… (1)"（阿拉伯数字章/节教材）
 RE_TOC_LINE = re.compile(
-    rf"^\s*(?:第{CH_NUM}章|\d+(?:\.\d+)*)\s*\S.*….*(?:（\d+）|\(\d+\)|\d+)\s*$"
+    rf"^\s*(?:第\s*{CN_OR_AR}\s*章|\d+(?:\.\d+)*)\s*\S.*….*(?:（\d+）|\(\d+\)|\d+)\s*$"
 )
 RE_TABLE_START = re.compile(r"<table")
 RE_TABLE_END = re.compile(r"</table>")
@@ -191,7 +193,7 @@ def _extract_toc_titles(batches: list[dict]) -> set[str]:
                 continue
             if not in_toc:
                 continue
-            m = re.match(rf"^第{CH_NUM}章\s+(.+?)\s*[…….]+\s*(?:（?\d+）?)?\s*$", line)
+            m = re.match(rf"^第\s*{CN_OR_AR}\s*章\s+(.+?)\s*[…….]+\s*(?:（?\d+）?)?\s*$", line)
             if m:
                 t = m.group(1).strip()
                 # 去掉尾部多余标点/页码残留
@@ -303,7 +305,8 @@ def rebuild(batches: list[dict]) -> dict:
                     and not RE_CH_LEVEL1_AR.match(stripped)
                     and not RE_LEVEL2_JIE.match(stripped)
                     # 目录页清单过滤：只有目录里出现过的标题才当章（防封面/序言/小节误判）
-                    and (not toc_titles or _norm_title(stripped) in toc_titles)
+                    and toc_titles
+                    and _norm_title(stripped) in toc_titles
                 ):
                     heading = Heading(1, stripped.lstrip("#").strip(), 0, kind="hash")
 
@@ -442,6 +445,9 @@ def cn_to_int(s: str) -> int:
     s = s.strip()
     if not s:
         return 0
+    # 阿拉伯数字直接转
+    if s.isdigit():
+        return int(s)
     if s == "十":
         return 10
     if "百" in s:
@@ -463,7 +469,7 @@ def check_section_continuity(structure: dict) -> list[str]:
         for sub in ch["children"]:
             if sub.get("board"):
                 continue
-            m = re.match(rf"^第({CH_NUM})节", sub["title"])
+            m = re.match(rf"^第\s*({CN_OR_AR})\s*节", sub["title"])
             if m:
                 nums.append(cn_to_int(m.group(1)))
         if len(nums) > 1 and nums != list(range(min(nums), max(nums) + 1)):
