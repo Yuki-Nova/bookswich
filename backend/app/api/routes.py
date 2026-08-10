@@ -218,11 +218,24 @@ async def start_parse(book_id: int):
             progress_cb=_progress,
         )
         ok = not result["errors"]
+        final_status = "parsed" if ok else "failed"
+
+        # 解析成功后自动跑结构重建（生成 structure.json，chapters/按章导出依赖它）
+        if ok:
+            try:
+                from ..services import structure
+
+                structure.run(book_id, row["title"])
+                final_status = "structure_ok"
+            except Exception:
+                # 重建失败不致命：保持 parsed，可后续手动重跑 structure.run
+                pass
+
         with get_conn() as conn:
             conn.execute(
                 "UPDATE books SET parse_status=?, parse_progress=?, quota_used=? WHERE id=?",
                 (
-                    "parsed" if ok else "failed",
+                    final_status,
                     f"{len(result['batch_files'])}/{result['batches_total']}",
                     result["pages_used"],
                     book_id,

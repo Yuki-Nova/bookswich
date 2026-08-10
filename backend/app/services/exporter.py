@@ -53,6 +53,95 @@ def format_html_table(table_html: str) -> str:
     return table_html.replace("><", ">\n<")
 
 
+def format_table_md(table_html: str) -> str:
+    """HTML table → Markdown table（表格内公式可渲染）。
+
+    MinerU 表格内公式用 `<eq>LaTeX</eq>` 标签，HTML `<table>` 里的定界符
+    不被 Markdown 渲染器解析（Typora/Obsidian 均如此）。本函数：
+    1. `<eq>...</eq>` → `$...$`（先 html.unescape 解码 `&lt;`/`&gt;` 等实体，
+       否则 LaTeX 把 `&` 当列分隔符报 misplace &）
+    2. `<tr>/<td>` → `| cell | cell |`，colspan=N 补 N-1 个空列、
+       rowspan=M 后续 M-1 行对应列补空单元格（列对齐、内容不丢不错位）
+    3. 插入 `| --- |` 分隔行
+
+    注：Markdown 无合并单元格语义，展开后视觉上不再合并，但内容完整。
+    """
+    import html as html_mod
+    import re
+
+    # 1. <eq>...</eq> → $...$
+    def _eq_to_latex(m: re.Match) -> str:
+        return f"${html_mod.unescape(m.group(1))}$"
+
+    table_html = re.sub(r"<eq>(.*?)</eq>", _eq_to_latex, table_html, flags=re.S)
+
+    # 单元格内竖线转义（Markdown 表格列分隔符）：
+    # 公式内 `|` → `\vert`（LaTeX 数学模式语义正确，渲染为 |）
+    # 公式外 `|` → `\|`（Markdown 转义，渲染为 |）
+    # 否则条件概率 P(A|B)、绝对值 |x̄| 会切断表格列（列错乱）
+    def _escape_cell_pipes(text: str) -> str:
+        parts = re.split(r"(\$[^$]*\$)", text)
+        out: list[str] = []
+        for part in parts:
+            if part.startswith("$") and part.endswith("$") and len(part) > 2:
+                # \vert 后带空格分隔控制序列名（\vertB 会解析失败）
+                out.append(part.replace("|", r"\vert "))
+            else:
+                out.append(part.replace("|", r"\|"))
+        return "".join(out)
+
+    # 2. 解析行/单元格（含 colspan/rowspan 展开）
+    rows = re.findall(r"<tr>(.*?)</tr>", table_html, re.S)
+    md_rows: list[str] = []
+    pending: dict[int, int] = {}  # 列位 → 剩余 rowspan 行数
+    for row in rows:
+        cells = re.findall(r"<td([^>]*)>(.*?)</td>", row, re.S)
+        out_cells: list[str] = []
+        col = 0
+        ci = 0
+        while col < max(20, len(cells) * 4):  # 列位上限防死循环
+            # rowspan 延续：该列还有合并占用 → 补空
+            if pending.get(col, 0) > 0:
+                out_cells.append("")
+                pending[col] = pending[col] - 1
+                if pending[col] == 0:
+                    pending.pop(col, None)
+                col += 1
+                continue
+            if ci >= len(cells):
+                break
+            attrs, content = cells[ci]
+            ci += 1
+            content = _escape_cell_pipes(content.strip().replace("\n", " "))
+            colspan = 1
+            m = re.search(r"colspan\s*=\s*[\"']?(\d+)", attrs)
+            if m:
+                colspan = int(m.group(1))
+            rowspan = 1
+            m = re.search(r"rowspan\s*=\s*[\"']?(\d+)", attrs)
+            if m:
+                rowspan = int(m.group(1))
+            out_cells.append(content)
+            for _ in range(max(1, colspan) - 1):
+                out_cells.append("")
+            if rowspan > 1:
+                pending[col] = rowspan - 1
+            col += max(1, colspan)
+            if col >= 60:  # 防御异常大 colspan
+                break
+        # 末尾补齐与首行对齐（rowspan 结尾空列不丢）
+        while len(out_cells) < len(md_rows[0].split("|")) - 2 if md_rows else False:
+            out_cells.append("")
+        if out_cells:
+            md_rows.append("| " + " | ".join(out_cells) + " |")
+
+    # 3. 分隔行（按第一行列数）
+    if len(md_rows) >= 2:
+        ncols = md_rows[0].count("|") - 1
+        md_rows.insert(1, "| " + " | ".join(["---"] * ncols) + " |")
+    return "\n".join(md_rows)
+
+
 def _node_to_md(node: dict) -> str:
     """章节树节点 → markdown（表格原样保留 + 公式规范化）。"""
     parts: list[str] = []
@@ -66,8 +155,11 @@ def _node_to_md(node: dict) -> str:
         for line in body[1:]:
             stripped = line.strip()
             if stripped.startswith("<table"):
-                # 表格：先拆行（避免超长行），再逐行规范化公式
-                # （逐行处理避免 HTML 标签干扰 $ 配对）
+                # 表格：保持 MinerU HTML 原样（用户决策 2026-08-09）：
+                # Markdown 表格转换在真实正文中列错乱（colspan/rowspan 展开 +
+                # 复杂公式 + 多分布并表），HTML 表格格式永远正确；
+                # 表格内公式（<eq>）不渲染是渲染器限制，接受。
+                # 仅拆行（避免超长单行），逐行规范化公式（正文公式）
                 formatted = format_html_table(stripped)
                 parts.append("\n".join(normalize_math(l) for l in formatted.splitlines()))
             else:

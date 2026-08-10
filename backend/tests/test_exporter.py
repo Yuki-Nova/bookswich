@@ -102,7 +102,7 @@ def test_full_export_math_normalized(rebuilt_full):
 
 
 def test_full_export_distribution_table_region(rebuilt_full):
-    """分布律表区域：HTML 表格保留（不再转换为 md 表格，不做内容判断）。"""
+    """分布律表区域：HTML 表格保留（不转换，格式正确优先）。"""
     ls = rebuilt_full.splitlines()
     idx = next(i for i, l in enumerate(ls) if "分布律还可表示为下列表形式" in l)
     # 表格以 HTML 形式存在（<table>），且"其中…性质："作为独立内容行保留
