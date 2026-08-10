@@ -8,6 +8,12 @@
 
 > ⚠ **2026-08-06 去 RAG 化（用户决策）**：原 RAG 知识库问答功能（检索/向量/DeepSeek/评测）已全部移除，知识库路线改为 **Hermes + Obsidian**（Obsidian 双向链接建库，Hermes 的 obsidian skill 负责笔记操作）。本项目**不再做任何 RAG/问答**，只保留「解析 + 格式修正 + 下载」。
 
+> 📐 **2026-08-10 表格智能转换（用户拍板：能转的必是规整表格）**：`exporter.py` 的 `_table_quality_gates`（6 道门禁：
+> 闭合配对 / 无 colspan·rowspan / 无游离文本 / 行列规整 / 2~8 列 / 2~20 行 / 单格 ≤300 字符）通过 → `format_table_md`
+> 转 Markdown 表格（`<eq>`→`$` 含实体解码、公式内 `|`→`\vert`、公式外 `|`→`\|`、表格前后空行分隔）；
+> 未通过 → 保留 MinerU HTML 原样。**禁止为公式渲染牺牲表格格式**——历史教训：HTML→MD 全量转换导致
+> 数据列表/合并单元格/多分布并表列错乱（2026-08-09 用户暴怒回退）。实测 349 表 → 176 转（列零错乱）+ 173 保。
+
 ## 技术栈
 
 | 环节 | 选型 |
@@ -39,8 +45,12 @@ bookswich/
 │   │   └── services/
 │   │       ├── mineru_client.py # 分批解析 + 落盘缓存 + 配额记账(quota.json)
 │   │       ├── structure.py     # 规则法结构重建（核心模块）
-│   │       └── exporter.py      # 导出 rebuilt/raw/按章
-│   ├── tests/test_exporter.py   # pytest（正式测试套件）
+│   │       └── exporter.py      # 导出 rebuilt/raw/按章 + 表格门禁转换（format_table_md/_table_quality_gates）
+│   ├── tests/                   # pytest（37 用例）
+│   │   ├── conftest.py          # 共享 fixture（rebuilt_full 全书导出）
+│   │   ├── test_exporter.py     # 导出/公式规范化/OSS 外链
+│   │   ├── test_structure_arabic.py  # 阿拉伯数字章/节标题识别
+│   │   └── test_table_md.py     # 表格门禁 + HTML→Markdown 转换
 │   ├── pyproject.toml           # [tool.pytest.ini_options] testpaths=["tests"]
 │   ├── requirements.txt
 │   └── .env                     # MINERU_API_KEY（不入库）

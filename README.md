@@ -7,7 +7,8 @@
 - 任意 PDF 教材，上传后自动分批解析（MinerU OCR，公式转 LaTeX、表格转 HTML）
 - 不信任 OCR 的标题推断，按教材编号体系（章→节→小节）重新打标，章节结构准确
 - 按章拆分（每章 30~370KB 秒开，性能友好）+ MOC 总览页（[[双链]] 导航）；图片转 OSS 外链（vault 纯文本，多端同步轻量）；WebDAV 同步方案下导入即同步（无需下载）
-- 提供整本 / 单章 / 原始 OCR / Obsidian 版（zip 包），一键导入obsidian选项，对Typora/Obsidian格式 友好（表格原样保留、公式规范化、无超长行）
+- 提供整本 / 单章 / 原始 OCR / Obsidian 版（zip 包），一键导入obsidian选项，对Typora/Obsidian格式 友好（公式规范化、无超长行）
+- **表格智能转换（2026-08-10）**：6 道质量门禁（闭合配对/无合并单元格/无游离文本/行列规整/2~8列/2~20行/单格≤300字符）通过 → HTML 表格转 Markdown 表格（表格内公式可渲染），未通过 → 保留 HTML 原样（格式永远正确）；实测 349 表 → 176 转 + 173 保，转换表列零错乱
 - 实时显示MinerU 免费额度（优先 2 解析每日 1000 页；每日总限 5000 份文件，一份 PDF 无论页数均按 1 计），解析进度可视化
 - 前端重设计（sticky 导航 + 拖拽上传 + 教材卡片列表 + 状态徽标）
 
@@ -82,7 +83,7 @@ bookswich/
 
 ```powershell
 cd backend
-.venv\Scripts\python.exe -m pytest    # 10 用例全绿
+.venv\Scripts\python.exe -m pytest    # 37 用例全绿
 ```
 
 ## 文档

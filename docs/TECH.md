@@ -13,6 +13,9 @@
 >
 > 🔄 **2026-08-07 Obsidian 同步升级为 WebDAV**：vault 走 wsgidav + Nginx 反代（如 `https://webdav.example.com/`），
 > Obsidian Remotely Save 多端自动同步；bookswich 服务器端导入直接写 WebDAV 同步目录（详见 1.2 节）。
+>
+> 📐 **2026-08-10 表格智能转换（门禁制）**：6 道质量门禁通过 → HTML 表格转 Markdown（表格内公式可渲染）；
+> 未通过 → 保留 HTML 原样。详见 1.3 节。
 
 ---
 
@@ -83,6 +86,41 @@
 **配置**：`WIKI_PATH=/path/to/llm-wiki`（写入 Hermes 配置，修改后下个会话生效）
 
 **维护流程**：每次操作先 orient（读 SCHEMA + index + 最近 log）→ 提炼教材知识点建 concept/entity 页 → 交叉链接 → 登记 index.md + log.md。底层模式见 bundled `llm-wiki` skill，本机落地约束见 `llm-wiki-obsidian-memory` skill。
+
+## 1.3 表格智能转换：门禁制（2026-08-10）
+
+**问题**：MinerU 表格内公式用 `<eq>LaTeX</eq>` 标签（非 `$...$`），HTML `<table>` 内的定界符不被
+Typora/Obsidian 渲染；而 HTML→Markdown 全量转换在真实教材中导致列错乱（数据列表、合并单元格、
+多分布并表）。2026-08-09 曾多次尝试后用户拍板回退。
+
+**方案（用户拍板：能转的必是规整表格）**：
+```
+<table> 块 → _table_quality_gates（6 道门禁）
+   全过 → format_table_md → Markdown 表格（公式可渲染）
+   任一不过 → 保留 MinerU HTML 原样（格式永远正确）
+```
+
+**6 道门禁**（`exporter.py` 常量可调）：
+| 门禁 | 检查 | 防什么 |
+|------|------|--------|
+| G1 闭合配对 | `<table` 数 == `</table>` 数 | 未闭合表格吞后续内容 |
+| G2 无合并 | 无 colspan/rowspan | Markdown 无合并单元格语义 |
+| G3 无游离文本 | 挖掉 td 后无残留文本 | 正文长字符串混入表格 |
+| G4 行列规整 | 每行 td 数一致 | 参差表格列错乱 |
+| G5 尺寸 | 2~8 列、2~20 行 | 数据列表/超宽表 |
+| G6 单格长度 | 单格 ≤300 字符 | 单格长文本爆炸 |
+
+**转换函数 `format_table_md`**：
+- `<eq>...</eq>` → `$...$`（先 `html.unescape` 解码 `&lt;`/`&gt;`，否则 LaTeX misplace &）
+- 竖线转义：公式内 `|` → `\vert `（数学模式语义正确），公式外 `|` → `\|`（Markdown 转义）
+- 表格前后空行分隔（防相邻表格被渲染器合并）
+
+**实测（《医药应用概率统计》349 个表格）**：176 转 Markdown（列零错乱）+ 173 保留
+（138 合并单元格 + 33 超宽 + 2 超长）。转换的 176 个自动校验列一致性 0 错乱。
+
+**测试**：`tests/test_table_md.py`（15 用例：门禁 8 + 转换 5 + 集成 2）+ `conftest.py` 共享 fixture。
+
+**铁律**：禁止为公式渲染牺牲表格格式——门禁不通过的表格宁可 HTML 原样，不强行转换。
 
 ## 2. 核心流程
 
