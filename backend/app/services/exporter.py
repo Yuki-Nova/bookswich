@@ -53,6 +53,109 @@ def format_html_table(table_html: str) -> str:
     return table_html.replace("><", ">\n<")
 
 
+def format_table_md(table_html: str) -> str:
+    """HTML table → Markdown table（表格内公式可渲染）。
+
+    仅对通过 `_table_quality_gates` 的规整表格调用：
+    1. `<eq>...</eq>` → `$...$`（html.unescape 解码 `&lt;`/`&gt;` 实体，
+       否则 LaTeX 把 `&` 当列分隔符报 misplace &）
+    2. 单元格竖线转义：公式内 `|` → `\vert `（LaTeX 数学模式语义正确），
+       公式外 `|` → `\\|`（Markdown 转义）——否则条件概率 P(A|B) 切断表格列
+    3. `<tr>/<td>` → `| cell | cell |` + `| --- |` 分隔行
+    """
+    import html as html_mod
+    import re
+
+    # 1. <eq>...</eq> → $...$（含 HTML 实体解码）
+    def _eq_to_latex(m: re.Match) -> str:
+        return f"${html_mod.unescape(m.group(1))}$"
+
+    table_html = re.sub(r"<eq>(.*?)</eq>", _eq_to_latex, table_html, flags=re.S)
+
+    # 2. 单元格竖线转义（公式内 \vert，公式外 \|）
+    def _escape_pipes(text: str) -> str:
+        parts = re.split(r"(\$[^$]*\$)", text)
+        out: list[str] = []
+        for part in parts:
+            if part.startswith("$") and part.endswith("$") and len(part) > 2:
+                # \vert 后带空格分隔控制序列名（\vertB 会解析失败）
+                out.append(part.replace("|", r"\vert "))
+            else:
+                out.append(part.replace("|", r"\|"))
+        return "".join(out)
+
+    # 3. 行/单元格 → Markdown
+    rows = re.findall(r"<tr>(.*?)</tr>", table_html, re.S)
+    md_rows: list[str] = []
+    for row in rows:
+        cells = [
+            _escape_pipes(c.strip().replace("\n", " "))
+            for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)
+        ]
+        if cells:
+            md_rows.append("| " + " | ".join(cells) + " |")
+    if len(md_rows) >= 2:
+        ncols = md_rows[0].count("|") - 1
+        md_rows.insert(1, "| " + " | ".join(["---"] * ncols) + " |")
+    # 前后加空行：Markdown 表格需要空行与上下文分隔，
+    # 否则相邻表格会被渲染器当成同一个表格（列数错乱）
+    return "\n" + "\n".join(md_rows) + "\n"
+
+
+# ── 表格质量门禁（2026-08-10 用户拍板：能转的必是规整表格）──────────
+
+TABLE_GATE_MIN_COLS = 2        # 最小列数（1 列不是表格）
+TABLE_GATE_MAX_COLS = 8        # 最大列数（防数据列表/超宽表）
+TABLE_GATE_MIN_ROWS = 2        # 最小行数（单行不是表格）
+TABLE_GATE_MAX_ROWS = 20       # 最大行数
+TABLE_GATE_MAX_CELL_CHARS = 300  # 单格字符上限（防单格长文本爆炸）
+
+
+def _table_quality_gates(table_html: str) -> tuple[bool, str]:
+    """6 道质量门禁：全过才允许转 Markdown，否则保留 HTML。
+
+    返回 (通过?, 原因)。原因用于统计/日志：
+      unbalanced  - <table 与 </table> 不配对（防未闭合吞内容）
+      merged      - 含 colspan/rowspan 合并单元格（Markdown 无合并语义）
+      impure      - 表格结构外有游离文本（防正文长字符串混入）
+      ragged      - 行 td 数不一致
+      cols/rows   - 超出 2~8 列 / 2~20 行（数据列表、超宽表）
+      cell_too_long - 单格超过 300 字符
+    """
+    import re
+
+    # G1 闭合配对
+    if table_html.count("<table") != table_html.count("</table>"):
+        return False, "unbalanced"
+    # G2 无合并单元格
+    if re.search(r"colspan|rowspan", table_html, re.I):
+        return False, "merged"
+    # G3 结构纯净：挖掉 td 内容后无游离文本（正文混入检测）
+    without_cells = re.sub(r"<td[^>]*>.*?</td>", "", table_html, flags=re.S)
+    leftover = re.sub(r"<[^>]+>", "", without_cells).strip()
+    if leftover:
+        return False, "impure"
+    # G4 行列规整
+    rows = re.findall(r"<tr>(.*?)</tr>", table_html, re.S)
+    if not rows:
+        return False, "empty"
+    counts = {len(re.findall(r"<td", r)) for r in rows}
+    if len(counts) != 1:
+        return False, "ragged"
+    # G5 尺寸
+    ncols = list(counts)[0]
+    if not (TABLE_GATE_MIN_COLS <= ncols <= TABLE_GATE_MAX_COLS):
+        return False, f"cols={ncols}"
+    if not (TABLE_GATE_MIN_ROWS <= len(rows) <= TABLE_GATE_MAX_ROWS):
+        return False, f"rows={len(rows)}"
+    # G6 单格长度
+    for r in rows:
+        for c in re.findall(r"<td[^>]*>(.*?)</td>", r, re.S):
+            if len(c) > TABLE_GATE_MAX_CELL_CHARS:
+                return False, "cell_too_long"
+    return True, "ok"
+
+
 def _node_to_md(node: dict) -> str:
     """章节树节点 → markdown（表格原样保留 + 公式规范化）。"""
     parts: list[str] = []
@@ -66,10 +169,14 @@ def _node_to_md(node: dict) -> str:
         for line in body[1:]:
             stripped = line.strip()
             if stripped.startswith("<table"):
-                # 表格：先拆行（避免超长行），再逐行规范化公式
-                # （逐行处理避免 HTML 标签干扰 $ 配对）
-                formatted = format_html_table(stripped)
-                parts.append("\n".join(normalize_math(l) for l in formatted.splitlines()))
+                # 表格：6 道质量门禁通过 → 转 Markdown（公式可渲染）；
+                # 未通过 → 保留 HTML 原样（格式永远正确）
+                ok, reason = _table_quality_gates(stripped)
+                if ok:
+                    parts.append(format_table_md(stripped))
+                else:
+                    formatted = format_html_table(stripped)
+                    parts.append("\n".join(normalize_math(l) for l in formatted.splitlines()))
             else:
                 parts.append(normalize_math(line))
     for sub in node.get("children") or []:

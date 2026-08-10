@@ -21,16 +21,6 @@ from app.services.exporter import (
 )
 
 BOOK_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "md" / "b1_医药应用概率统计"
-
-
-@pytest.fixture(scope="module")
-def rebuilt_full():
-    """全书导出（需要结构重建产物存在；缺失则跳过）。"""
-    if not (BOOK_DIR.parent.parent / "build" / "b1_医药应用概率统计" / "structure.json").exists():
-        pytest.skip("structure.json 不存在，跳过全书导出测试")
-    return export_rebuilt(1, "医药应用概率统计")
-
-
 # ── 公式规范化 ─────────────────────────────────────────
 
 
@@ -102,12 +92,12 @@ def test_full_export_math_normalized(rebuilt_full):
 
 
 def test_full_export_distribution_table_region(rebuilt_full):
-    """分布律表区域：HTML 表格保留（不再转换为 md 表格，不做内容判断）。"""
+    """分布律表区域：规整表格门禁通过 → Markdown（公式可渲染）。"""
     ls = rebuilt_full.splitlines()
     idx = next(i for i, l in enumerate(ls) if "分布律还可表示为下列表形式" in l)
-    # 表格以 HTML 形式存在（<table>），且"其中…性质："作为独立内容行保留
     seg = "\n".join(ls[idx : idx + 30])
-    assert "<table>" in seg
+    assert "| X |" in seg            # 表格已转 Markdown
+    assert "| --- |" in seg          # 分隔行存在
     assert "其中 $p_{k}" in seg
 
 
