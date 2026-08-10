@@ -1,4 +1,5 @@
 """FastAPI 应用入口。"""
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -7,6 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api.routes import router
 from .config import settings
 from .db import init_db
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 
 @asynccontextmanager

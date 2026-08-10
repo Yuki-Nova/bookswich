@@ -68,8 +68,10 @@ class Settings(BaseSettings):
 
     # 解析分批大小（页）
     parse_batch_size: int = 25
-    # MinerU 每日配额（页）
+    # MinerU 每日优先解析页数（1000 页内走优先队列，快）
     daily_quota_pages: int = 1000
+    # MinerU 每日文件数上限（一份 PDF 无论多少页均按 1 份计，硬上限）
+    daily_file_limit: int = 5000
 
     @property
     def db_path(self) -> Path:

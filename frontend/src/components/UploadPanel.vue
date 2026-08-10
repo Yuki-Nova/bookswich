@@ -119,9 +119,20 @@ async function upload() {
 
 // 每本书的「开始/续跑解析」（缓存续跑：已解析批次自动跳过，不重复计费）
 async function resumeParse(b) {
+  // 文件数硬上限（5000 份/日）：前端直接拦截，避免无谓启动
+  if (props.quota && props.quota.files_remaining <= 0) {
+    uploadingMsg.value = {
+      text: `今日文件数已达上限（${props.quota.daily_file_limit} 份），请明天再试`,
+      ok: false,
+    }
+    return
+  }
   parsingId.value = b.id
   parsing.value = true
-  uploadingMsg.value = ''
+  // 优先页数（1000 页/日）用完不拦：MinerU 自动进普通队列，只是慢
+  uploadingMsg.value = props.quota?.priority_exhausted
+    ? { text: '⚠ 已超优先额度（1000 页/日），解析进入普通队列，会较慢', ok: true }
+    : ''
   progress.value = b.parse_progress || ''
   try {
     const r = await fetch(`/api/books/${b.id}/parse`, { method: 'POST' })

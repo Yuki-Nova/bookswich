@@ -2,7 +2,7 @@
 
 > 教材 PDF → MinerU 解析 → 结构重建（修正格式）→ Markdown 导出/下载 → Obsidian vault → llm-wiki 记忆层
 > 测试样本：《医药应用概率统计》第 3 版（369 页，纯扫描版）
-> 更新日期：2026-08-07
+> 更新日期：2026-08-10
 >
 > ⚠ **2026-08-06 去 RAG 化**：按用户决策，知识库路线改为 Hermes + Obsidian（双链建库），
 > 本项目的 RAG 功能（分块/检索/问答）全部移除。本文 2.3~2.5 节仅作历史记录保留。
@@ -16,6 +16,9 @@
 >
 > 📐 **2026-08-10 表格智能转换（门禁制）**：6 道质量门禁通过 → HTML 表格转 Markdown（表格内公式可渲染）；
 > 未通过 → 保留 HTML 原样。详见 1.3 节。
+
+> 📊 **2026-08-10 配额模型双维度化**：MinerU 配额按「优先页数 1000/日 + 文件数 5000/日」双维度记账；
+> 优先不足排队不中断、文件数满额才中断；详见 2.1 节。
 
 ---
 
@@ -127,8 +130,8 @@ Typora/Obsidian 渲染；而 HTML→Markdown 全量转换在真实教材中导�
 ### 2.1 解析（MinerU 分批）
 
 - 完整模式 `extract_batch`，**25 页/批**
-- **配额规则（2026-08-07 实测修正）**：免费额度不是「1000 页/天」——**优先 2 解析页数每日 1000 页**（高优先级解析模式按页计），
-  解析**总限制每日 5000 份文件**（一份 PDF 无论多少页均按 1 算）；落盘缓存 + 幂等重跑不重复计费
+- **配额规则（2026-08-07 实测，2026-08-10 双维度落地）**：免费额度不是「1000 页/天」——
+  **优先解析页数每日 1000 页**（走优先队列快）+ **总限制每日 5000 份文件**（一份 PDF 无论多少页均按 1 算，硬上限）
 - 每批 Markdown 落盘 `data/md/<book>/batch_XX_pN-M.md` + 同名 `.json`（content_list）
 - content_list 元素含 `{type, text, page_idx, text_level, bbox}`：
   - 标题特征：`type=="text"` 且 `text_level in (1,2)`（**注意：目录页标题也会被标记，精确页码因此被污染，P0 用批区间页码**）
@@ -140,7 +143,13 @@ Typora/Obsidian 渲染；而 HTML→Markdown 全量转换在真实教材中导�
   img_path 文件都已存在才算缓存完整；缺图批次自动重跑补图（重跑会重新计配额）
   ⚠ **坑**：images/ 目录是所有批次共享的，检查不能只看目录非空（第一批重跑后
   后续批次会误判完整而跳过）——必须逐批核对 img_path 文件
-- 配额记账 `data/quota.json`；重跑走缓存不重复消耗
+- **配额记账（2026-08-10 升级双维度）**：`data/quota.json` 结构 `{date, priority_pages_used, files_used}`
+  （旧 `{date, used}` 自动迁移）；QuotaManager 模块级全局锁防并发超卖；API 响应不含配额字段，只能本地记账
+- **解析中断语义（2026-08-10 修正）**：优先页数不足**不中断**（MinerU 自动进普通队列排队，只是慢）；
+  文件数满 5000 **才中断**（`file_limit_exceeded`）；每本 PDF 首次实际调 API 占 1 份，
+  books.quota_files 持久化防续跑重复计；重跑走缓存不重复消耗
+- **解析线程日志（2026-08-10）**：main.py logging.basicConfig；线程异常 logger.exception 落日志
+  （structure.run 失败、线程崩溃均可见，不再静默死亡）
 
 ### 2.2 结构重建（`services/structure.py`）
 
@@ -260,7 +269,7 @@ zip 优雅跳过）；导出 zip 5.6MB（md 706KB + 453 图）解压结构正确
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/health` | 健康检查 |
-| GET | `/api/quota` | MinerU 配额 |
+| GET | `/api/quota` | MinerU 配额（双维度：priority_used/1000 + files_used/5000 + priority_exhausted；兼容旧字段） |
 | GET | `/api/books` | 教材列表 |
 | POST | `/api/books/upload` | 上传 PDF（multipart，PyMuPDF 检测页数） |
 | POST | `/api/books/{id}/parse` | 后台线程分批解析 |
@@ -280,7 +289,7 @@ zip 优雅跳过）；导出 zip 5.6MB（md 706KB + 453 图）解压结构正确
 npm run dev    # http://localhost:5173，/api 代理到 8000
 
 # 测试
-cd backend; .venv\Scripts\python.exe -m pytest   # 10 用例
+cd backend; .venv\Scripts\python.exe -m pytest   # 47 用例
 ```
 
 ## 6. 数据落盘结构
@@ -309,7 +318,9 @@ data/
 11. **WebDAV 同步路径陷阱（2026-08-07）**：Obsidian Remotely Save 填根 URL 会自动建 `obsidian/` 子目录同步，
     实际同步目录 = `<vault>/obsidian/`；`OBSIDIAN_VAULT_DIR` 必须指向它（不是 vault 根本身，
     也不是 WebDAV 域名挂的静态网站根）；改 .env 后重启 systemd 服务
-12. **MinerU 配额（2026-08-07 实测）**：不是"1000 页/天"；优先 2 解析页数 1000 页/天 + 总限制 5000 份文件/天（PDF 无论页数按 1 计）
+12. **MinerU 配额（2026-08-07 实测，2026-08-10 已双维度落地）**：不是"1000 页/天"；
+    优先 2 解析页数 1000 页/天 + 总限制 5000 份文件/天（PDF 无论页数按 1 计）；API 响应不含配额字段，
+    只能本地记账（见 2.1 节）
 
 ## 8. 已知限制 / 待办
 

@@ -49,7 +49,7 @@
 - [x] **Vue 上传页**：文件上传、教材列表、解析进度轮询、配额显示
 - [x] **Vue 问答页**：教材范围切换、markdown 渲染（marked）、引用出处展示
 - [x] **多教材管理**：books 表多记录、问答按教材隔离
-- [ ] **向量检索补回**：embedding 模型（bge-small-zh-v1.5 ONNX 95MB）网络就绪后下载启用混合检索（代码已就绪：vector_search 自动降级，build 接口已容错）
+- [x] ~~**向量检索补回**~~（2026-08-06 去 RAG 化已废弃：检索层/embedding 代码已删）
 - [x] **公式渲染（KaTeX）**：markdown-it + markdown-it-texmath 解析阶段渲染 + auto-render 兜底 HTML 表格内公式（验证 PASS）
 - [x] **Markdown 下载**：exporter 服务（rebuilt 结构重建版 / raw 原始合并版），API 下载 + 前端教材列表下载按钮（中文文件名 RFC5987 编码，实测 200）
 - [x] **公式渲染修复**：行内公式空格规范化 + `\(...\)` 定界符修复（KaTeX 全书扫描失败 10→3，剩余为 OCR 截断残缺公式）；Typora 实测通过
@@ -59,7 +59,7 @@
 - [x] **问答"未检索到相关内容"修复**：FTS 分词一致性——索引与查询统一 jieba `cut_for_search`（整词+子词都进索引，如"假设检验"→"假设 检验 假设检验"），修复长文本分词上下文导致短语匹配 0 命中；重建 FTS 后 5 词命中 + 端到端问答 3/3
 - [x] **导出策略 v4（用户决策）**：MinerU 表格**原样保留不做内容判断**（仅排版换行防超长行）；公式定界符规范化（行内去内空格 + 块级多行 + `\(...\)` 转普通括号，KaTeX 扫描失败 10→3，余为 OCR 截断）
 - [x] **Typora 大文件优化 B1**：HTML 表格→标准 Markdown 表格（已被 v4 表格保留策略取代，记录备查）
-- [ ] 问答页流式输出（SSE）
+- [x] ~~问答页流式输出（SSE）~~（2026-08-06 去 RAG 化已废弃：ChatPanel 问答页已删）
 
 ### Agentic RAG（P1，2026-08-06 新增，用户指定下一步优先）
 
@@ -88,7 +88,8 @@
 
 **Obsidian 适配（新增）**
 - [x] OB-0 用户决策：Obsidian 布置由用户自行进行（Hermes + Obsidian 方案，obsidian skill 操作笔记），本项目仅交付标准 Markdown
-- [ ] OB-2 兼容性验证：`$` 公式、HTML 表格在 Obsidian 渲染检查（待用户布置 Obsidian 后验证，暂缓）
+- [x] **OB-2 兼容性验证**：`$` 公式 Typora/Obsidian 渲染 OK；HTML 表格内 `<eq>` 公式两处均不渲染
+      → 促成 2026-08-10 表格门禁转换（见文末小节）
 
 **文档同步**
 - [x] DOC-1 requirements.txt / README.md / CLAUDE.md / docs/TODO.md / docs/TECH.md 更新为去 RAG 化状态
@@ -132,6 +133,17 @@
 - [ ] **OSS-7 已知限制**：b6 第五章 1 张图（290751…jpg）MinerU 缺字节，源数据与 git 历史均无，
       该引用保留相对路径（裂图），重跑 hash 会变无法对回——记录备查，可接受（0.2%）
 
+### 网页端删除教材 + 无编号教材结构重建兜底（2026-08-08 已执行）
+
+- [x] **DEL-1 删除教材**：`DELETE /api/books/{id}`（删 raw PDF + data/md/ + data/build/ + db 记录；
+      解析中 409、幂等 404、raw 仅限 data/raw/ 内防穿越）
+- [x] **DEL-2 前端**：教材卡片「🗑 删除」按钮（confirm 确认）
+- [x] **FALLBACK-1 无编号兜底**：structure.py 对无编号教材（正文标题无「第x章」）用 MinerU # 标题 +
+      目录页清单过滤重建；标题归一化匹配（公式/全角破折号）
+- [x] **FALLBACK-2 验证**：b3《西方经济学（宏观部分）》重建 11 章全识别、内容覆盖 97%
+      （即生产问题 1 的修复，见下）；pytest 14/14；前端 build 通过
+- **git**: 7f2c65e
+
 ### P2 — 进阶（原 RAG 相关条目废弃，保留表格/大纲等非 RAG 项）
 
 - [ ] 章节知识点大纲自动生成（配合复习流程）
@@ -173,7 +185,7 @@
 | 输出无页码 | 分批解析得页区间，引用给页范围 |
 | 封面/装饰图噪音 | 前置部分过滤 + 版面特征过滤（位置/尺寸/图注） |
 | 结构错误毒数据入库 | 质检关卡：大纲报告确认后才入库，异常章节标记待修 |
-| 配额超限（1000页/天） | 记账 + 失败重试不重复计费 + Markdown 落盘缓存 |
+| 配额超限（优先 1000 页/日 + 文件 5000/日） | 双维度记账：优先不足排队不中断、文件数满额才中断 + 失败重试不重复计费 + Markdown 落盘缓存 |
 | 标题规则误判 | 规则调整重跑（零 MinerU 成本），P1 可加 LLM 校正兜底 |
 
 ## 数据落盘结构（约定）
@@ -188,15 +200,16 @@ data/
 └── quota.json    每日配额记账
 ```
 
-## 生产问题记录（2026-08-07 用户反馈，待后续处理）
+## 生产问题记录（2026-08-07 用户反馈；问题 1/3 已解决，问题 2 待处理）
 
-1. **导入 Obsidian 报「结构重建产物缺失」**：已解析产物（b3《西方经济学（宏观部分 第7版）》）调用 `import-obsidian` 报错
-   `结构重建产物缺失：<data_dir>/build/b3_西方经济学（宏观部分 第7版） (高鸿业) (z-library.sk, 1lib.sk, z-lib.sk)/structure.json`——
-   疑似解析完成后未跑/未成功跑结构重建，或 build 产物路径与 books 表记录不一致，需排查重建链路
+1. ~~**导入 Obsidian 报「结构重建产物缺失」**~~（**已解决 2026-08-08**）：b3《西方经济学（宏观部分 第7版）》
+   是无编号教材走不了结构重建——7f2c65e 增加无编号兜底（MinerU # 标题 + 目录页清单过滤），
+   b3 重建 11 章全识别、内容覆盖 97%
 2. **无章节文件不能导入**：某些文件（无章节结构）无法走 `import-obsidian`；后续收藏论文/单篇资料时会有需求，
    需支持「无章节兜底导入」（整本一个章节或直接放根目录）
-3. **MinerU 配额规则修正**：实测免费额度不是「1000 页/天」——**优先 2 解析页数每日 1000 页**，
-   解析**总限制每日 5000 份文件**（一份 PDF 无论多少页均按 1 算）。前端/文档的配额文案需同步修正
+3. ~~**MinerU 配额规则修正**~~（**已解决 2026-08-10**）：实测免费额度不是「1000 页/天」——**优先 2 解析页数每日 1000 页**，
+   解析**总限制每日 5000 份文件**（一份 PDF 无论多少页均按 1 算）。配额模型已按双维度改造（见文末小节），
+   前端/文档文案已同步
 
 ---
 
@@ -221,12 +234,13 @@ data/
 - [ ] **OPEN-2 OSS 降为可选增强**：未配 OSS 时图片走 local（zip 内 images/）；import-obsidian 同时支持带图目录版，不再强制 oss
 - [ ] **OPEN-3 Obsidian 路径降为可选便利**：默认主路径 = 下载 Obsidian 版 zip 自行拖入 vault；import-obsidian 仅本机/自托管场景显示
 - [ ] **OPEN-4 首次引导**：无 key 时前端显示申请链接 + 填框，替代干巴巴的「未配置」警告
-- [ ] **OPEN-5 清理库内个人数据**：测试 PDF（testbook/verify_upload）与解析产物不入库；data/.gitignore + 示例结构
-- [ ] **OPEN-6 .env.example 全量注释化**
+- [x] **OPEN-5 清理库内个人数据**：根 .gitignore 已拦 data/、export/、*.pdf、docs/ui-*.png（2026-08-07 完成；
+      data/ 整体忽略故无需 data/.gitignore，示例结构可后续补）
+- [x] **OPEN-6 .env.example 全量注释化**（17 行全注释；parse_batch_size 等新字段可后续补）
 
 ### P0 — 开源要素
 
-- [ ] **OPEN-7 git init + LICENSE(MIT) + 初始提交**
+- [x] **OPEN-7 git init + LICENSE(MIT) + 初始提交**（2026-08-07 完成，已推送 github.com/Yuki-Nova/bookswich）
 - [ ] **OPEN-8 Dockerfile + docker-compose**：后端 + 前端 build 产物 + data/ 数据卷，一条命令起
 - [ ] **OPEN-9 单端口部署**：Vite build 产物由 FastAPI StaticFiles 托管，替代双进程双端口
 - [ ] **OPEN-10 CI**：GitHub Actions 跑 pytest + 前端 build
@@ -288,3 +302,53 @@ HTML→MD 全量转换导致列错乱（2026-08-09 多轮尝试后用户拍板�
 **实测**：《医药应用概率统计》349 表格 → 176 转（列零错乱）+ 173 保留（138 合并 + 33 超宽 + 2 超长）
 **验证**：pytest 37/37 + ad-hoc 21/21 + 全量自动校验
 **git**：7ea5d9b（功能）+ d9b840f（文档）
+
+---
+
+## 配额模型修正：优先页数 + 文件数双维度（2026-08-10 已执行完毕）
+
+**背景**：MinerU 实测配额 = 每日**优先解析 1000 页**（优先队列快）+ 每日**总限制 5000 份文件**
+（一份 PDF 算 1 份，超 1000 页进普通队列排队慢）。现状代码单维度记账（`daily_quota_pages=1000`），
+`parse_book` 里 `quota.remaining() < need` 时**直接中断解析**——这是错的：MinerU 还能解析只是排队。
+
+**目标**：优先额度不足不中断（继续解析、排队），文件数 5000 为硬上限；前端如实显示两种状态。
+
+### 改动清单
+
+**P0 后端**
+- [x] **Q-1 config.py**：`daily_quota_pages=1000` 语义改为「每日优先页数」；新增 `daily_file_limit=5000`「每日文件数上限」
+- [x] **Q-2 QuotaManager**（mineru_client.py）：quota.json 升级 `{date, priority_pages_used, files_used}`
+      （旧 `{date, used}` 自动迁移）；**模块级全局锁**（routes 每次 new 实例也原子，防并发超卖，修代码评估 P1）；
+      新增 add_pages / try_reserve_file / priority_remaining / files_remaining / priority_exhausted
+- [x] **Q-3 parse_book**：删「优先页数不足即 break」；改为「文件数超限才 break」；
+      每本 PDF 首次实际调用 API 时原子占 1 份（计数口径实测：API 响应无配额字段 → 按 PDF 去重记账，
+      books 表 quota_files 列持久化，续跑不重复计）
+- [x] **Q-4 /api/quota**：返回 priority 与 file 双维度 + priority_exhausted；保留旧字段兼容前端过渡
+
+**P0 前端**
+- [x] **Q-5 App.vue 徽标**：`优先配额 X/1000`；超限变 amber `⚠ 已进入普通队列（较慢）`；文件数 `文件 X/5000`
+- [x] **Q-6 UploadPanel.vue**：文件数满前端拦截提示「明天再试」；超优先提示「解析进入普通队列，会较慢」
+
+**P1 测试/文档**
+- [x] **Q-7 tests/test_quota.py**（10 用例）：双维度记账 / 跨日重置 / 旧结构迁移 / 并发安全（30 线程+10 抢 3 名额）/
+      parse_book 超限逻辑（mock）/ api 字段
+- [x] **Q-8 前端 npm run build 验证**（gzip 29.8KB）
+- [x] **Q-9 README / TODO / .env.example 配额文案更新**
+
+**验证（2026-08-10）**：pytest 47/47（含 10 个新配额用例）+ 前端 build（gzip 29.8KB）+
+uvicorn 实测 /api/quota 双维度字段 + ad-hoc 行为验证 7 项全过
+
+**附带（顺带，低风险）**：routes.py `structure.run` 的 `except Exception: pass` → `logger.exception`
++ 解析线程 try/except（代码评估 P0 最小项，改解析链路时顺手）
+
+### 执行顺序
+1. 实测确认文件计数口径（优先查 SDK/API 文档；必要时本地测试 token 提交 2 批看账号计数，烧 2 次调用）
+2. Q-1~Q-4 后端 → pytest 全绿
+3. Q-5~Q-6 前端 → npm run build
+4. Q-7~Q-9 测试与文档
+5. 生产部署待用户指示（本地验证通过后）
+
+### 风险
+- 旧 quota.json 迁移失败：删文件重新记账（最坏多烧 1000 页优先额度）
+- 文件计数口径不确定：实测后校准 add_file 语义
+- **本次不做**：前端轮询 try/catch 重构、解析任务队列化（另开任务）

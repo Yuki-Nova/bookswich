@@ -70,7 +70,7 @@ bookswich/
 │   ├── app/
 │   │   ├── api/routes.py       # REST 接口（books/upload/parse/chapters/export/quota）
 │   │   └── services/           # mineru_client / structure / exporter
-│   └── tests/                  # pytest 测试（10 用例）
+│   └── tests/                  # pytest 测试（47 用例：表格门禁/exporter/结构/配额）
 ├── frontend/           # Vue 3 前端（上传 + 下载）
 ├── data/               # 解析产物（raw/md/build/kb.db/quota.json）
 ├── export/             # 已导出的 Markdown 文件

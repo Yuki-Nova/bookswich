@@ -44,7 +44,13 @@ onMounted(() => { refreshBooks(); refreshQuota(); refreshSettings() })
         <div class="nav-stats">
           <span v-if="quota" class="pill blue">
             <span class="dot"></span>
-            MinerU 配额 {{ quota.used }}/{{ quota.daily_limit }}
+            优先配额 {{ quota.priority_used }}/{{ quota.daily_priority_pages }}
+          </span>
+          <span v-if="quota && quota.files_used" class="pill blue">
+            <span class="dot"></span>文件 {{ quota.files_used }}/{{ quota.daily_file_limit }}
+          </span>
+          <span v-if="quota?.priority_exhausted" class="pill amber">
+            <span class="dot"></span>⚠ 已进普通队列（较慢）
           </span>
           <span v-if="!quota?.has_api_key" class="pill amber">
             <span class="dot"></span>未配置 API Key

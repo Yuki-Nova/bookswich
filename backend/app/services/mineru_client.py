@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import date
 from pathlib import Path
 from typing import Callable
@@ -15,37 +16,104 @@ from ..config import settings
 
 FLASH_MAX_PAGES = 20
 
+# 全局锁：routes 每次请求各自 new QuotaManager()，锁必须模块级共享才原子
+_QUOTA_LOCK = threading.Lock()
+
 
 class QuotaManager:
-    """每日配额记账，数据落盘 data/quota.json。"""
+    """每日配额记账，数据落盘 data/quota.json。
+
+    双维度（对应 MinerU 云 API 实际规则）：
+      priority_pages_used —— 每日优先解析页数（1000 页内走优先队列，快）
+      files_used          —— 每日文件数（一份 PDF 无论多少页均按 1 份计，硬上限 5000）
+
+    旧结构 {date, used} 自动迁移：used → priority_pages_used。
+    所有读改写加锁，防并发解析时配额超卖。
+    """
 
     def __init__(self, path: Path | None = None):
         self.path = Path(path) if path else settings.quota_file
+        self._lock = _QUOTA_LOCK
 
     def _load(self) -> dict:
         if self.path.exists():
             try:
                 data = json.loads(self.path.read_text(encoding="utf-8"))
                 if data.get("date") == date.today().isoformat():
+                    # 旧结构 {date, used} 迁移（惰性，下次写回时落盘新结构）
+                    if "used" in data and "priority_pages_used" not in data:
+                        data["priority_pages_used"] = int(data.get("used", 0))
+                        data.pop("used", None)
+                        data.setdefault("files_used", 0)
                     return data
             except Exception:
                 pass
-        return {"date": date.today().isoformat(), "used": 0}
+        return {
+            "date": date.today().isoformat(),
+            "priority_pages_used": 0,
+            "files_used": 0,
+        }
 
-    def used_today(self) -> int:
-        return int(self._load().get("used", 0))
-
-    def remaining(self) -> int:
-        return max(settings.daily_quota_pages - self.used_today(), 0)
-
-    def add(self, pages: int) -> int:
-        data = self._load()
-        data["used"] = int(data.get("used", 0)) + int(pages)
+    def _save(self, data: dict) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
             json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        return int(data["used"])
+
+    # ── 读 ─────────────────────────────────────────────
+
+    def priority_used_today(self) -> int:
+        with self._lock:
+            return int(self._load().get("priority_pages_used", 0))
+
+    def files_used_today(self) -> int:
+        with self._lock:
+            return int(self._load().get("files_used", 0))
+
+    def priority_remaining(self) -> int:
+        return max(settings.daily_quota_pages - self.priority_used_today(), 0)
+
+    def files_remaining(self) -> int:
+        return max(settings.daily_file_limit - self.files_used_today(), 0)
+
+    def priority_exhausted(self) -> bool:
+        return self.priority_used_today() >= settings.daily_quota_pages
+
+    # ── 写（加锁保证 read-modify-write 原子）────────────
+
+    def add_pages(self, pages: int) -> int:
+        """累计解析页数（优先+普通都累计；超 1000 页不中断，只进普通队列）。"""
+        with self._lock:
+            data = self._load()
+            data["priority_pages_used"] = (
+                int(data.get("priority_pages_used", 0)) + int(pages)
+            )
+            self._save(data)
+            return int(data["priority_pages_used"])
+
+    def try_reserve_file(self) -> bool:
+        """原子尝试占用 1 个文件名额（每日 5000 份硬上限）。
+
+        成功返回 True（files_used+1）；已满返回 False——调用方应中断解析。
+        """
+        with self._lock:
+            data = self._load()
+            if int(data.get("files_used", 0)) >= settings.daily_file_limit:
+                return False
+            data["files_used"] = int(data.get("files_used", 0)) + 1
+            self._save(data)
+            return True
+
+    # ── 兼容旧调用（used_today / remaining / add）────────
+
+    def used_today(self) -> int:
+        return self.priority_used_today()
+
+    def remaining(self) -> int:
+        return self.priority_remaining()
+
+    def add(self, pages: int) -> int:
+        return self.add_pages(pages)
 
 
 class MineruParser:
@@ -134,7 +202,13 @@ class MineruParser:
         """分批解析全书，落盘 data/md/<book>/batch_XX_pN-M.md。
 
         progress_cb(done_batches, total_batches) 用于回传进度。
-        返回 {batch_files, batches_total, pages_used, errors, skipped_cached}
+        返回 {batch_files, batches_total, pages_used, files_reserved, errors, skipped_cached}
+
+        配额语义（2026-08-10 修正）：
+        - 优先页数（1000/日）不足**不中断**——MinerU 自动进普通队列排队，只是慢
+        - 文件数（5000/日）为硬上限，满额才中断（file_limit_exceeded）
+        - 文件数按 PDF 去重：每本 PDF 首次实际调用 API 时占 1 份，
+          books.quota_files 持久化，续跑不重复计；全缓存命中则不计
         """
         md_dir = settings.md_dir / f"b{book_id}_{book_title}"
         md_dir.mkdir(parents=True, exist_ok=True)
@@ -158,6 +232,15 @@ class MineruParser:
         pages_used = 0
         skipped_cached = 0
 
+        # 该书是否已计入每日文件数（防续跑重复计；全缓存命中则本次不计）
+        from ..db import get_conn
+
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT quota_files FROM books WHERE id=?", (book_id,)
+            ).fetchone()
+        file_reserved = bool(row and row["quota_files"])
+
         for idx, (start, end) in enumerate(batches, 1):
             batch_file = md_dir / f"batch_{idx:02d}_p{start}-{end}.md"
             if self._batch_complete(batch_file):
@@ -167,11 +250,22 @@ class MineruParser:
                     progress_cb(idx, len(batches))
                 continue
 
-            need = end - start + 1
-            if self.quota.remaining() < need:
-                errors.append(f"quota_exceeded at batch {idx} (p{start}-{end})")
-                break
+            # 文件数硬上限（5000/日）：首次实际调用前原子占位。
+            # 优先页数超 1000 不中断——MinerU 自动进普通队列排队，只是慢。
+            if not file_reserved:
+                if not self.quota.try_reserve_file():
+                    errors.append(f"file_limit_exceeded at batch {idx} (p{start}-{end})")
+                    break
+                file_reserved = True
+                try:
+                    with get_conn() as conn:
+                        conn.execute(
+                            "UPDATE books SET quota_files=1 WHERE id=?", (book_id,)
+                        )
+                except Exception:
+                    pass
 
+            need = end - start + 1
             pages_str = f"{start}-{end}" if start != end else str(start)
             try:
                 out = self._extract(str(pdf_path), pages_str)
@@ -208,6 +302,7 @@ class MineruParser:
             "batch_files": batch_files,
             "batches_total": len(batches),
             "pages_used": pages_used,
+            "files_reserved": 1 if file_reserved else 0,
             "skipped_cached": skipped_cached,
             "errors": errors,
         }

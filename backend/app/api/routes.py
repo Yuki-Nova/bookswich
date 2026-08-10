@@ -1,5 +1,6 @@
 """API 路由。"""
 import json
+import logging
 import shutil
 import threading
 import time
@@ -14,6 +15,8 @@ from urllib.parse import quote
 from ..config import settings
 from ..db import get_conn
 from ..services.mineru_client import MineruParser, QuotaManager
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -197,50 +200,60 @@ async def start_parse(book_id: int):
     parser = MineruParser()
 
     def _run():
-        with get_conn() as conn:
-            conn.execute(
-                "UPDATE books SET parse_status='parsing', parse_progress='0/0' WHERE id=?",
-                (book_id,),
-            )
-
-        def _progress(done: int, total: int):
+        try:
             with get_conn() as conn:
                 conn.execute(
-                    "UPDATE books SET parse_status='parsing', parse_progress=? WHERE id=?",
-                    (f"{done}/{total}", book_id),
+                    "UPDATE books SET parse_status='parsing', parse_progress='0/0' WHERE id=?",
+                    (book_id,),
                 )
 
-        result = parser.parse_book(
-            book_id=book_id,
-            pdf_path=row["raw_path"],
-            total_pages=row["page_count"],
-            book_title=row["title"],
-            progress_cb=_progress,
-        )
-        ok = not result["errors"]
-        final_status = "parsed" if ok else "failed"
+            def _progress(done: int, total: int):
+                with get_conn() as conn:
+                    conn.execute(
+                        "UPDATE books SET parse_status='parsing', parse_progress=? WHERE id=?",
+                        (f"{done}/{total}", book_id),
+                    )
 
-        # 解析成功后自动跑结构重建（生成 structure.json，chapters/按章导出依赖它）
-        if ok:
-            try:
-                from ..services import structure
-
-                structure.run(book_id, row["title"])
-                final_status = "structure_ok"
-            except Exception:
-                # 重建失败不致命：保持 parsed，可后续手动重跑 structure.run
-                pass
-
-        with get_conn() as conn:
-            conn.execute(
-                "UPDATE books SET parse_status=?, parse_progress=?, quota_used=? WHERE id=?",
-                (
-                    final_status,
-                    f"{len(result['batch_files'])}/{result['batches_total']}",
-                    result["pages_used"],
-                    book_id,
-                ),
+            result = parser.parse_book(
+                book_id=book_id,
+                pdf_path=row["raw_path"],
+                total_pages=row["page_count"],
+                book_title=row["title"],
+                progress_cb=_progress,
             )
+            ok = not result["errors"]
+            final_status = "parsed" if ok else "failed"
+
+            # 解析成功后自动跑结构重建（生成 structure.json，chapters/按章导出依赖它）
+            if ok:
+                try:
+                    from ..services import structure
+
+                    structure.run(book_id, row["title"])
+                    final_status = "structure_ok"
+                except Exception:
+                    # 重建失败不致命：保持 parsed，可后续手动重跑 structure.run
+                    logger.exception("structure.run failed for book %s", book_id)
+
+            with get_conn() as conn:
+                conn.execute(
+                    "UPDATE books SET parse_status=?, parse_progress=?, quota_used=? WHERE id=?",
+                    (
+                        final_status,
+                        f"{len(result['batch_files'])}/{result['batches_total']}",
+                        result["pages_used"],
+                        book_id,
+                    ),
+                )
+        except Exception:
+            logger.exception("parse thread crashed for book %s", book_id)
+            try:
+                with get_conn() as conn:
+                    conn.execute(
+                        "UPDATE books SET parse_status='failed' WHERE id=?", (book_id,)
+                    )
+            except Exception:
+                logger.exception("failed to mark book %s as failed", book_id)
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
@@ -390,9 +403,18 @@ async def settings_status():
 async def quota_status():
     q = QuotaManager()
     return {
-        "daily_limit": settings.daily_quota_pages,
-        "used": q.used_today(),
+        # 双维度（2026-08-10）：优先页数 + 文件数
+        "daily_priority_pages": settings.daily_quota_pages,
+        "priority_used": q.priority_used_today(),
+        "priority_remaining": q.priority_remaining(),
+        "priority_exhausted": q.priority_exhausted(),
+        "daily_file_limit": settings.daily_file_limit,
+        "files_used": q.files_used_today(),
+        "files_remaining": q.files_remaining(),
         "date": date.today().isoformat(),
-        "remaining": q.remaining(),
         "has_api_key": bool(settings.mineru_api_key),
+        # 兼容旧字段（前端过渡期）
+        "daily_limit": settings.daily_quota_pages,
+        "used": q.priority_used_today(),
+        "remaining": q.priority_remaining(),
     }

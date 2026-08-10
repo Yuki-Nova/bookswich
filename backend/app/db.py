@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS books (
     page_count INTEGER DEFAULT 0,
     parse_status TEXT DEFAULT 'pending',   -- pending|parsing|parsed|structure_ok|failed
     quota_used INTEGER DEFAULT 0,
+    quota_files INTEGER DEFAULT 0,          -- 该书是否已计入每日文件数（0/1，防续跑重复计）
     raw_path TEXT DEFAULT '',
     parse_progress TEXT DEFAULT '',        -- 如 "3/15"，解析进度
     created_at TEXT DEFAULT (datetime('now', 'localtime'))
@@ -40,3 +41,5 @@ def init_db() -> None:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(books)").fetchall()}
         if "parse_progress" not in cols:
             conn.execute("ALTER TABLE books ADD COLUMN parse_progress TEXT DEFAULT ''")
+        if "quota_files" not in cols:
+            conn.execute("ALTER TABLE books ADD COLUMN quota_files INTEGER DEFAULT 0")
