@@ -77,7 +77,8 @@ onMounted(() => { refreshBooks(); refreshQuota(); refreshSettings() })
     <!-- 左窄右宽双栏（借鉴 MinerU 工作台布局） -->
     <div class="layout">
       <aside class="sidebar">
-        <SidebarPanel :books="books" :quota="quota" :settings="settings" :parse-task="parseTask" />
+        <SidebarPanel :books="books" :quota="quota" :settings="settings" :parse-task="parseTask"
+                      @changed="refreshBooks(); refreshQuota()" />
       </aside>
 
       <main class="content">
@@ -86,8 +87,7 @@ onMounted(() => { refreshBooks(); refreshQuota(); refreshSettings() })
           <p>上传 PDF → 自动解析并修正格式 → 下载 Markdown / 导入 Obsidian</p>
         </section>
 
-        <UploadPanel :books="books" :quota="quota" :settings="settings" :parse-task="parseTask"
-                     @changed="refreshBooks(); refreshQuota()" />
+        <UploadPanel :quota="quota" @changed="refreshBooks(); refreshQuota()" />
 
         <!-- 对比预览占位（L-6，本次不做功能） -->
         <section class="card placeholder">

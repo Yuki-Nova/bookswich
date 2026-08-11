@@ -167,6 +167,65 @@ a:hover { text-decoration: underline; }
 
 .task-item .msg { margin: 8px 0 0; }
 
+/* 已入库教材列表（侧栏紧凑版，2026-08-11 从右侧主区移入） */
+.side-count { color: var(--text-muted); font-weight: 400; font-size: 12px; }
+
+.side-book-list { display: flex; flex-direction: column; gap: 8px; }
+
+.side-book {
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  box-shadow: var(--border-shadow);
+  background: #fff;
+}
+
+.side-book.parsing {
+  box-shadow: 0 0 0 1px rgba(10, 114, 239, 0.35), 0 4px 12px rgba(10, 114, 239, 0.08);
+}
+
+.side-book-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.side-book-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-book-meta {
+  margin: 3px 0 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.side-book-ops {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.side-book-ops .grow { flex: 1; }
+
+.side-book-ops .chapter-select {
+  margin-left: 0;
+  max-width: 96px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.side-book-ops .link-btn { padding: 2px 3px; font-size: 12px; }
+.side-book-ops .btn.sm { padding: 3px 8px; font-size: 11px; }
+
 /* 按钮小号（侧栏快捷操作） */
 .btn.sm { padding: 4px 10px; font-size: 12px; }
 
@@ -473,63 +532,7 @@ a:hover { text-decoration: underline; }
 .msg.ok { color: var(--green); }
 .msg.err { color: var(--red); }
 
-/* ── 教材列表（卡片行，替代硬表格） ────────── */
-
-.book-list { display: flex; flex-direction: column; gap: 12px; }
-
-.book-card {
-  border-radius: var(--r-md);
-  box-shadow: var(--border-shadow);
-  padding: 16px 18px;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
-  background: #fff;
-}
-
-.book-card:hover {
-  box-shadow: var(--card-shadow-hover);
-}
-
-.book-top {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.book-title {
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.3px;
-  flex: 1;
-  min-width: 200px;
-  line-height: 1.4;
-  word-break: break-all;
-}
-
-.book-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.book-meta .sep { opacity: 0.5; }
-
-.book-ops {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(0, 0, 0, 0.05);
-}
-
-.book-ops .grow { flex: 1; }
-
-/* 章节选择 */
+/* 章节选择（侧栏教材列表复用，2026-08-11 起为唯一使用方） */
 .chapter-select {
   margin-left: auto;
   font-family: var(--font-mono);
@@ -573,23 +576,6 @@ a:hover { text-decoration: underline; }
   font-family: var(--font-mono);
 }
 
-/* 解析中卡片顶部细条 */
-.book-card.parsing {
-  box-shadow:
-    0 0 0 1px rgba(10, 114, 239, 0.35),
-    0 4px 12px rgba(10, 114, 239, 0.08);
-}
-
-/* 空状态 */
-.empty {
-  padding: 40px 20px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.empty .big { font-size: 26px; display: block; margin-bottom: 8px; }
-
 /* 旧表格类保留（未用但避免样式断裂） */
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 6px 8px; }
@@ -600,10 +586,10 @@ th, td { text-align: left; padding: 6px 8px; }
   to { opacity: 1; transform: none; }
 }
 
-.book-card, .card, .hero { animation: fadeInUp 0.3s ease both; }
-.book-card:nth-child(2) { animation-delay: 0.04s; }
-.book-card:nth-child(3) { animation-delay: 0.08s; }
-.book-card:nth-child(4) { animation-delay: 0.12s; }
+.card, .hero { animation: fadeInUp 0.3s ease both; }
+.side-book:nth-child(2) { animation-delay: 0.04s; }
+.side-book:nth-child(3) { animation-delay: 0.08s; }
+.side-book:nth-child(4) { animation-delay: 0.12s; }
 
 /* ── 响应式 ───────────────────────────────── */
 
@@ -618,7 +604,5 @@ th, td { text-align: left; padding: 6px 8px; }
   .brand-sub { display: none; }
   .nav-stats .pill.hide-mobile { display: none; }
   .card { padding: 18px 16px; }
-  .book-title { font-size: 14px; }
-  .book-ops { gap: 2px; }
   .chapter-select { max-width: 140px; }
 }
