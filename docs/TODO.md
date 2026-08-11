@@ -592,3 +592,30 @@ https 页面 200 + 新 assets(index-fMHmIlzj.js)200
 - **已知边界**:章 page_range 是批级区间(如第 2 章仍标 p1-25),PDF #page 定位为批级粗定位,
   精确页码待本地 MinerU(拿 page_idx)后改进;iframe 每次切章重载 PDF(可接受);
   未做滚动同步/页内高亮(二期 pdf.js 选项)
+
+
+---
+
+## 并排预览 KaTeX 公式渲染(2026-08-11 已执行完毕)
+
+**背景**:并排预览右栏 marked 渲染不识别 LaTeX,公式原样显示 `$\mu$` 等文本,不直观。
+
+### 改动清单
+
+- [x] **KTX-1 依赖**:katex@0.17 + marked-katex-extension@5.1.10(注意该包是 **default export**,
+      `import markedKatex from '...'`,不是命名导出;JS gzip 58.9→136.5KB,KaTeX 字体为主要增量)
+- [x] **KTX-2 SideBySideView.vue**:`marked.use(markedKatex({throwOnError:false, output:'html', nonStandard:true}))`
+      + 引入 katex.min.css;DOMPurify 消毒在 KaTeX 之后,公式 HTML 不受影响
+- [x] **KTX-3 同行块级公式规范化** `normalizeInlineDisplay`:MinerU/导出常有 `$$公式$$` 与正文同行
+      (甚至跨多行)写法,marked-katex-extension 的 block 规则要求 `$$` 独立成行 →
+      预处理 `/\$\$(?!\$)([\s\S]+?)\$\$/g` 拆成独立行块级
+- [x] **KTX-4 nonStandard 宽松匹配**:中文教材公式常紧贴中文/换行(如 `即$t$分布`、列表项内
+      `$(G \to F \to t)$`),标准模式要求 `$` 前有空格或行首 → 开启后残留从 12 行 → 0 行
+
+### 验证(2026-08-11)
+
+- [x] 前端 build 通过(gzip 136.58KB)
+- [x] 浏览器实测(export/verify_katex.py 并入 verify_sbs.py 同款模式):
+      123 个 .katex 元素渲染、无残留原始公式文本(0 行)、无 JS 错误;
+      完整回归 verify_sbs.py 15/15 全 PASS
+- [x] pytest 66/66(后端未动,回归确认)

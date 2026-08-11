@@ -3,7 +3,24 @@
 // 章节切换联动：PDF 按章 page_range 起始页 #page=N 定位；右栏拉取 as=markdown 原文
 import { ref, watch, computed } from 'vue'
 import { marked } from 'marked'
+import markedKatex from 'marked-katex-extension'
 import DOMPurify from 'dompurify'
+import 'katex/dist/katex.min.css'
+
+// KaTeX 公式渲染：$...$ 行内 / $$...$$ 块级（坏公式不崩页面，原样展示）
+// nonStandard: 中文教材公式常紧贴中文/换行（`即$t$分布`、列表项内 $(G→F→t)$），
+// 标准模式要求 $ 前有空格或行首 → 开启非标准宽松匹配
+marked.use(markedKatex({
+  throwOnError: false,
+  output: 'html',
+  nonStandard: true,
+}))
+
+// 同行块级公式规范化：MinerU/导出常有 `$$公式$$` 与正文同行（甚至跨多行）的写法，
+// marked-katex-extension 的 block 规则要求 $$ 独立成行 → 预先把这类 $$...$$ 拆成独立行
+function normalizeInlineDisplay(md) {
+  return md.replace(/\$\$(?!\$)([\s\S]+?)\$\$/g, (m, body) => `\n$$\n${body.trim()}\n$$\n`)
+}
 
 const props = defineProps({
   bookId: Number,
@@ -68,7 +85,7 @@ const renderedHtml = computed(() => {
       },
     },
   })
-  const raw = marked.parse(md.value, { async: false })
+  const raw = marked.parse(normalizeInlineDisplay(md.value), { async: false })
   return DOMPurify.sanitize(raw)
 })
 
