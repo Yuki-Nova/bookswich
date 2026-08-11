@@ -55,3 +55,19 @@ class OssImageUploader:
         for key, src in items:
             mapping[key] = self.upload(key, src)
         return mapping
+
+    def delete_prefix(self, prefix: str) -> int:
+        """删除指定 key 前缀下的全部对象（best-effort），返回删除数。
+
+        用于删除教材时清理孤儿图片（key 规则 <书名>/images/…）。失败抛异常，
+        由调用方决定是否吞掉（删除教材主流程不应被 OSS 故障阻塞）。
+        """
+        keys: list[str] = []
+        for obj in oss2.ObjectIterator(self.bucket, prefix=prefix, max_keys=1000):
+            keys.append(obj.key)
+        if not keys:
+            return 0
+        for i in range(0, len(keys), 1000):
+            self.bucket.batch_delete_objects(keys[i : i + 1000])
+        logger.info("OSS 删除 %d 个对象: %s*", len(keys), prefix)
+        return len(keys)

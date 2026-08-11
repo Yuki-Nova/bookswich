@@ -83,7 +83,7 @@ bookswich/
 
 ```powershell
 cd backend
-.venv\Scripts\python.exe -m pytest    # 37 用例全绿
+.venv\Scripts\python.exe -m pytest    # 47 用例全绿
 ```
 
 ## 文档

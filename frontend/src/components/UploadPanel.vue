@@ -82,15 +82,23 @@ function schedulePoll() {
 
 async function poll() {
   if (!parsingId.value) return
-  const r = await fetch(`/api/books/${parsingId.value}`)
-  const d = await r.json()
+  let d
+  try {
+    // 超时 + 失败保护：后端重启/网络抖动不中断轮询（挂起则 15s 后重试）
+    const r = await fetch(`/api/books/${parsingId.value}`, { signal: AbortSignal.timeout(15000) })
+    d = await r.json()
+  } catch (e) {
+    uploadingMsg.value = { text: `⚠ 进度刷新失败，自动重试：${e.message}`, ok: false }
+    schedulePoll()
+    return
+  }
   progress.value = d.parse_progress || ''
   if (d.parse_status === 'parsing') {
     schedulePoll()
   } else {
     parsing.value = false
     parsingId.value = null
-    uploadingMsg.value = d.parse_status === 'parsed'
+    uploadingMsg.value = d.parse_status === 'parsed' || d.parse_status === 'structure_ok'
       ? { text: '✅ 解析完成，可下载 Markdown', ok: true }
       : { text: `解析结束：${d.parse_status}（进度 ${d.parse_progress}）`, ok: false }
     emit('changed')

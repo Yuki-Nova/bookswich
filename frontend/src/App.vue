@@ -5,27 +5,31 @@ import UploadPanel from './components/UploadPanel.vue'
 const books = ref([])
 const quota = ref(null)
 const settings = ref(null)
+const backendDown = ref(false)
 
 async function refreshBooks() {
   try {
     const r = await fetch('/api/books')
     const d = await r.json()
     books.value = d.books || []
-  } catch { /* backend down */ }
+    backendDown.value = false
+  } catch { backendDown.value = true }
 }
 
 async function refreshQuota() {
   try {
     const r = await fetch('/api/quota')
     quota.value = await r.json()
-  } catch { /* backend down */ }
+    backendDown.value = false
+  } catch { backendDown.value = true }
 }
 
 async function refreshSettings() {
   try {
     const r = await fetch('/api/settings')
     settings.value = await r.json()
-  } catch { /* backend down */ }
+    backendDown.value = false
+  } catch { backendDown.value = true }
 }
 
 onMounted(() => { refreshBooks(); refreshQuota(); refreshSettings() })
@@ -42,6 +46,9 @@ onMounted(() => { refreshBooks(); refreshQuota(); refreshSettings() })
         </div>
         <span class="brand-sub">教材 PDF → MinerU 解析 → Markdown</span>
         <div class="nav-stats">
+          <span v-if="backendDown" class="pill red">
+            <span class="dot"></span>后端未连接
+          </span>
           <span v-if="quota" class="pill blue">
             <span class="dot"></span>
             优先配额 {{ quota.priority_used }}/{{ quota.daily_priority_pages }}

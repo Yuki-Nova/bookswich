@@ -342,6 +342,8 @@ def export_zip(
     """
     if image_mode not in ("local", "oss"):
         raise ValueError("image_mode 必须是 local / oss")
+    # 防御性 sanitize：公共函数防调用方传入含路径分隔符的文件名（zip slip）
+    md_name = _sanitize_filename(md_name) or "export.md"
     src_md_dir = settings.md_dir / f"b{book_id}_{book_title}"
     uploader = None
     if image_mode == "oss":

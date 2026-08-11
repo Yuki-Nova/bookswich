@@ -232,9 +232,11 @@ def _detect_chapter_style(batches: list[dict]) -> tuple[str, set[str]]:
     return "numbered", toc
 
 
-def rebuild(batches: list[dict]) -> dict:
+def rebuild(batches: list[dict], book_title: str = "") -> dict:
     """主流程：返回 structure dict。
 
+    book_title 仅作元数据记录（如「医药应用概率统计」），导出时书名以参数为准。
+    
     structure = {
         "book": ..., "pages_covered": "1-70",
         "chapters": [
@@ -404,11 +406,8 @@ def rebuild(batches: list[dict]) -> dict:
                 _attach_content_line(cur, line)
 
     # 汇总
-    for ch in chapters:
-        ch["children"] = _merge_subheadings(ch["children"])
-
     return {
-        "book": "医药应用概率统计（种子批次）",
+        "book": book_title,
         "pages_covered": _pages_covered(batches),
         "chapters": chapters,
         "pre_matter_chars": sum(len(x) for x in pre_matter_parts),
@@ -420,17 +419,6 @@ def _pages_covered(batches: list[dict]) -> str:
     if not batches:
         return ""
     return f"p{batches[0]['page_start']}-{batches[-1]['page_end']}"
-
-
-def _merge_subheadings(nodes: list[dict]) -> list[dict]:
-    """把同一标题下的连续内容行合并进该节点（标题行自带 lines 冗余，清理）。"""
-    return nodes
-
-
-def estimate_chapter_pages(chapters: list[dict], total_range: str) -> list[dict]:
-    """按章标题出现位置估算页码：用章标题的 page_range 作为章起点，
-    下一章起点为本章终点。此函数在生成大纲时计算。"""
-    return chapters
 
 
 # ── 质检 ──────────────────────────────────────────────
@@ -549,7 +537,7 @@ def run(book_id: int = 1, book_title: str = "医药应用概率统计") -> dict:
     if not batches:
         raise FileNotFoundError(f"未找到批次 md：{md_dir}")
 
-    structure = rebuild(batches)
+    structure = rebuild(batches, book_title=book_title)
     build_dir = settings.build_dir / f"b{book_id}_{book_title}"
     build_dir.mkdir(parents=True, exist_ok=True)
     (build_dir / "structure.json").write_text(

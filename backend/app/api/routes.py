@@ -1,6 +1,7 @@
 """API 路由。"""
 import json
 import logging
+import re
 import shutil
 import threading
 import time
@@ -20,11 +21,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# 上传大小上限（流式检查，超限删文件报 413）
+MAX_UPLOAD_MB = 200
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
-def _ensure_column(conn, table: str, column: str, ddl: str) -> None:
-    cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
-    if column not in cols:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+def _safe_stem(name: str) -> str:
+    """文件名 stem 安全化：取 basename、去扩展名、替换非法字符（<>:"/\\|?*）。
+
+    同时杜绝 zip slip（../ 的 / 与 \\ 均被替换；路径仅保留最后一级）。
+    注意不用 Path(name).stem：WindowsPath 会把 "a:xx.pdf" 当 drive 吞掉前缀。
+    """
+    base = name.replace("\\", "/").rsplit("/", 1)[-1]
+    if "." in base:
+        base = base.rsplit(".", 1)[0]
+    stem = re.sub(r'[<>:"/\\|?*]', "_", base).strip(" ._")
+    return stem or "unnamed"
 
 
 @router.get("/health")
@@ -53,15 +65,12 @@ async def create_book(body: BookCreate):
         if not src.exists():
             raise HTTPException(400, f"raw_path 不存在: {src}")
         settings.ensure_dirs()
-        dest = settings.raw_dir / src.name
+        dest = settings.raw_dir / f"{_safe_stem(src.name)}{src.suffix}"
         if not dest.exists():
-            import shutil
-
             shutil.copy2(src, dest)
         raw_path = str(dest)
 
     with get_conn() as conn:
-        _ensure_column(conn, "books", "parse_progress", "TEXT DEFAULT ''")
         cur = conn.execute(
             "INSERT INTO books (title, author, edition, publisher, page_count, raw_path) "
             "VALUES (?,?,?,?,?,?)",
@@ -91,18 +100,33 @@ async def upload_book(file: UploadFile = File(...)):
     if not filename.lower().endswith(".pdf"):
         raise HTTPException(400, "仅支持 PDF 文件")
     settings.ensure_dirs()
-    dest = settings.raw_dir / f"{int(time.time())}_{filename}"
-    with open(dest, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    # 文件名安全化（防 zip slip / Windows 非法字符），时间戳前缀防重名
+    safe_name = f"{_safe_stem(filename)}.pdf"
+    dest = settings.raw_dir / f"{int(time.time())}_{safe_name}"
+
+    # 流式落盘 + 大小上限（超限删文件报 413，不落假数据）
+    size = 0
+    try:
+        with open(dest, "wb") as f:
+            while chunk := file.file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    raise HTTPException(413, f"文件超过 {MAX_UPLOAD_MB}MB 上限")
+                f.write(chunk)
+    except HTTPException:
+        dest.unlink(missing_ok=True)
+        raise
+    except OSError as exc:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(400, f"文件写入失败: {exc}") from exc
 
     page_count = _detect_pages(str(dest))
     if page_count <= 0:
         # 页数检测失败（服务器缺 PyMuPDF 或文件损坏）→ 清理并明确报错，不落 0 页假数据
         dest.unlink(missing_ok=True)
         raise HTTPException(400, "无法读取 PDF 页数（服务器环境缺 PyMuPDF 或文件损坏）")
-    title = Path(filename).stem
+    title = _safe_stem(filename)
     with get_conn() as conn:
-        _ensure_column(conn, "books", "parse_progress", "TEXT DEFAULT ''")
         cur = conn.execute(
             "INSERT INTO books (title, page_count, raw_path) VALUES (?,?,?)",
             (title, page_count, str(dest)),
@@ -174,11 +198,25 @@ async def delete_book(book_id: int):
     with get_conn() as conn:
         conn.execute("DELETE FROM books WHERE id=?", (book_id,))
 
+    # 5) best-effort 清理 OSS 孤儿图片（key 前缀 <书名>/images/，与导出 key 规则一致）
+    oss_removed = 0
+    if settings.oss_configured:
+        try:
+            from ..services import exporter
+            from ..services.oss_images import OssImageUploader
+
+            prefix = f"{exporter._sanitize_filename(row['title'])}/images/"
+            oss_removed = OssImageUploader().delete_prefix(prefix)
+        except Exception:
+            # OSS 清理失败不阻塞删除主流程（可能无 List/Delete 权限、网络故障）
+            logger.exception("OSS cleanup failed for book %s", book_id)
+
     return {
         "status": "ok",
         "book_id": book_id,
         "title": row["title"],
         "removed": removed,
+        "oss_removed": oss_removed,
     }
 
 
@@ -326,7 +364,8 @@ async def export_markdown(
         raise HTTPException(400, str(exc))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    stem = f"{row['title']}{f'-第{chapter}章' if chapter else ''}"
+    # 文件名安全化：旧库记录 title 可能含非法字符（新上传已在上传时 sanitize）
+    stem = _safe_stem(f"{row['title']}{f'-第{chapter}章' if chapter else ''}")
     # 打包 zip（md + images/ 子目录，图片相对引用可用），解压即 Obsidian/Typora 可读
     zip_bytes = exporter.export_zip(book_id, row["title"], text, f"{stem}.md", image_mode=images)
     filename = f"{stem}.zip"
