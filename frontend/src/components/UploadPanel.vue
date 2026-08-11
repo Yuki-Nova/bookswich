@@ -1,21 +1,22 @@
 <script setup>
+// UploadPanel.vue — 右侧主区：上传卡片 + 教材列表（2026-08-11 L-5 去轮询，进度移交侧栏任务卡片）
 import { ref, watch } from 'vue'
 
-const props = defineProps({ books: Array, quota: Object, settings: Object })
+const props = defineProps({
+  books: Array,
+  quota: Object,
+  settings: Object,
+  parseTask: Object,
+})
 const emit = defineEmits(['changed'])
 
 const file = ref(null)
 const uploading = ref(false)
-const uploadingMsg = ref('')
-const parsingId = ref(null)
-const parsing = ref(false)
-const progress = ref('')
-const chapterMaps = ref({})   // bookId -> [{no, title}]
-const importingId = ref(null) // 正在导入 Obsidian 的书
-const deletingId = ref(null)  // 正在删除的书
+const uploadingMsg = ref('')   // 上传/导入/删除的反馈消息（解析消息在侧栏 parseTask.parseMsg）
+const importingId = ref(null)  // 正在导入 Obsidian 的书
+const deletingId = ref(null)   // 正在删除的书
 const dragOver = ref(false)
-
-let timer = null
+const chapterMaps = ref({})    // bookId -> [{no, title}]
 
 const STATUS_TEXT = {
   pending: '待解析',
@@ -32,17 +33,6 @@ const STATUS_PILL = {
   structure_ok: 'pill green',
   failed: 'pill red',
 }
-
-// 自动接管「解析中」的书（含刷新页面后恢复轮询）
-watch(() => props.books, (list) => {
-  const busy = (list || []).find(b => b.parse_status === 'parsing')
-  if (busy && busy.id !== parsingId.value) {
-    parsingId.value = busy.id
-    parsing.value = true
-    progress.value = busy.parse_progress || ''
-    schedulePoll()
-  }
-}, { deep: true, immediate: true })
 
 watch(() => props.books, loadChapters, { deep: true })
 
@@ -67,44 +57,6 @@ function onDrop(e) {
   if (f && f.type === 'application/pdf') file.value = f
 }
 
-// 进度条：parse_progress "2/13" → 百分比 + 文案
-function progressInfo(p) {
-  const m = /(\d+)\/(\d+)/.exec(p || '')
-  if (!m) return { pct: 0, text: p || '' }
-  const done = +m[1], total = +m[2]
-  return { pct: total ? Math.round(done / total * 100) : 0, text: `第 ${done}/${total} 批` }
-}
-
-function schedulePoll() {
-  if (timer) clearTimeout(timer)
-  timer = setTimeout(poll, 4000)
-}
-
-async function poll() {
-  if (!parsingId.value) return
-  let d
-  try {
-    // 超时 + 失败保护：后端重启/网络抖动不中断轮询（挂起则 15s 后重试）
-    const r = await fetch(`/api/books/${parsingId.value}`, { signal: AbortSignal.timeout(15000) })
-    d = await r.json()
-  } catch (e) {
-    uploadingMsg.value = { text: `⚠ 进度刷新失败，自动重试：${e.message}`, ok: false }
-    schedulePoll()
-    return
-  }
-  progress.value = d.parse_progress || ''
-  if (d.parse_status === 'parsing') {
-    schedulePoll()
-  } else {
-    parsing.value = false
-    parsingId.value = null
-    uploadingMsg.value = d.parse_status === 'parsed' || d.parse_status === 'structure_ok'
-      ? { text: '✅ 解析完成，可下载 Markdown', ok: true }
-      : { text: `解析结束：${d.parse_status}（进度 ${d.parse_progress}）`, ok: false }
-    emit('changed')
-  }
-}
-
 async function upload() {
   if (!file.value) return
   uploading.value = true
@@ -125,33 +77,9 @@ async function upload() {
   }
 }
 
-// 每本书的「开始/续跑解析」（缓存续跑：已解析批次自动跳过，不重复计费）
-async function resumeParse(b) {
-  // 文件数硬上限（5000 份/日）：前端直接拦截，避免无谓启动
-  if (props.quota && props.quota.files_remaining <= 0) {
-    uploadingMsg.value = {
-      text: `今日文件数已达上限（${props.quota.daily_file_limit} 份），请明天再试`,
-      ok: false,
-    }
-    return
-  }
-  parsingId.value = b.id
-  parsing.value = true
-  // 优先页数（1000 页/日）用完不拦：MinerU 自动进普通队列，只是慢
-  uploadingMsg.value = props.quota?.priority_exhausted
-    ? { text: '⚠ 已超优先额度（1000 页/日），解析进入普通队列，会较慢', ok: true }
-    : ''
-  progress.value = b.parse_progress || ''
-  try {
-    const r = await fetch(`/api/books/${b.id}/parse`, { method: 'POST' })
-    const d = await r.json()
-    if (!r.ok) throw new Error(d.detail || '启动失败')
-    schedulePoll()
-  } catch (e) {
-    parsing.value = false
-    parsingId.value = null
-    uploadingMsg.value = { text: `解析启动失败：${e.message}`, ok: false }
-  }
+// 开始/续跑解析：进度显示在左侧「解析任务」卡片（L-5 上移）
+function resumeParse(b) {
+  if (props.parseTask) props.parseTask.startParse(b, props.quota)
 }
 
 // 导入 Obsidian：按章拆分写入 vault/教材/<书名>/
@@ -196,8 +124,8 @@ async function deleteBook(b) {
 
 <template>
   <div>
-    <!-- 上传区 -->
-    <section class="card">
+    <!-- 上传卡片（借鉴 MinerU：大图标 + 主按钮 + 服务策略横幅） -->
+    <section class="card upload-card">
       <h2>上传教材 PDF</h2>
       <div class="upload-zone" :class="{ dragover: dragOver }"
            @dragover.prevent="dragOver = true" @dragleave="dragOver = false"
@@ -205,7 +133,7 @@ async function deleteBook(b) {
         <input type="file" accept=".pdf" @change="onFile" />
         <span class="upload-icon">📄</span>
         <span class="upload-title">点击选择或拖拽 PDF 到此处</span>
-        <span class="upload-hint">自动检测页数，MinerU 分批解析（每天配额 {{ quota?.daily_limit || 1000 }} 页）</span>
+        <span class="upload-hint">自动检测页数，MinerU 分批解析（单文件 ≤ 200MB）</span>
         <span v-if="file" class="upload-file">{{ file.name }}</span>
       </div>
       <div class="upload-actions">
@@ -216,9 +144,13 @@ async function deleteBook(b) {
       </div>
       <p v-if="uploadingMsg" class="msg" :class="uploadingMsg.ok ? 'ok' : 'err'">{{ uploadingMsg.text }}</p>
 
-      <div v-if="parsing" class="prog">
-        <div class="bar"><div class="fill" :style="{ width: progressInfo(progress).pct + '%' }"></div></div>
-        <span class="prog-text">⏳ {{ progressInfo(progress).text }}</span>
+      <!-- 服务策略横幅（借鉴 MinerU，配额双维度概要） -->
+      <div v-if="quota" class="quota-banner" :class="{ warn: quota.priority_exhausted }">
+        <span class="qb-dot"></span>
+        <span v-if="!quota.priority_exhausted">
+          服务策略：优先解析 {{ quota.daily_priority_pages }} 页/日（超出进普通队列较慢）· 文件 {{ quota.daily_file_limit }} 份/日
+        </span>
+        <span v-else>⚠ 优先额度已用完（{{ quota.daily_priority_pages }} 页/日），解析进入普通队列，会较慢</span>
       </div>
     </section>
 
@@ -241,11 +173,6 @@ async function deleteBook(b) {
             <span>{{ b.page_count }} 页</span>
             <span class="sep">·</span>
             <span>进度 {{ b.parse_progress || '—' }}</span>
-          </div>
-
-          <div v-if="b.parse_status === 'parsing'" class="prog">
-            <div class="bar"><div class="fill" :style="{ width: progressInfo(b.parse_progress).pct + '%' }"></div></div>
-            <span class="prog-text">{{ progressInfo(b.parse_progress).text }}</span>
           </div>
 
           <div class="book-ops">

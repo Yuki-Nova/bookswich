@@ -41,7 +41,7 @@
   --r-md: 8px;
   --r-sm: 6px;
   --gap: 12px;
-  --page-w: 880px;
+  --page-w: 1080px;
 }
 
 * { box-sizing: border-box; }
@@ -62,10 +62,148 @@ a:hover { text-decoration: underline; }
 
 /* ── 页面骨架 ─────────────────────────────── */
 
-.page {
-  max-width: var(--page-w);
+/* 左窄右宽双栏（2026-08-11 L-1，借鉴 MinerU 工作台布局） */
+.layout {
+  max-width: 1080px;
   margin: 0 auto;
   padding: 0 20px 72px;
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 80px;
+}
+
+.content {
+  flex: 1;
+  min-width: 0; /* 防长内容撑破 flex 布局 */
+}
+
+.sidebar-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.side-card {
+  padding: 18px;
+  margin-bottom: 0;
+}
+
+.card.side-card h3 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text-secondary);
+}
+
+/* 限额卡片 */
+.quota-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 4px 0;
+}
+
+.quota-row b { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+
+.quota-row.file { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(0, 0, 0, 0.05); }
+
+.quota-bar { margin: 2px 0 6px; }
+
+.quota-warn {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--amber);
+}
+
+.fill.warn { background: var(--amber); }
+
+/* 解析任务卡片 */
+.task-list { display: flex; flex-direction: column; gap: 10px; }
+
+.task-item {
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  box-shadow: var(--border-shadow);
+  background: #fff;
+}
+
+.task-item.active {
+  box-shadow: 0 0 0 1px rgba(10, 114, 239, 0.35), 0 4px 12px rgba(10, 114, 239, 0.08);
+}
+
+.task-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.task-empty {
+  padding: 16px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.task-item .msg { margin: 8px 0 0; }
+
+/* 按钮小号（侧栏快捷操作） */
+.btn.sm { padding: 4px 10px; font-size: 12px; }
+
+/* 对比预览占位（L-6） */
+.placeholder {
+  border: 1.5px dashed rgba(0, 0, 0, 0.14);
+  background: transparent;
+  box-shadow: none;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.placeholder .ph-icon { display: block; font-size: 22px; margin-bottom: 6px; }
+.placeholder .ph-title { font-size: 14px; font-weight: 500; color: var(--text-secondary); }
+.placeholder .ph-desc { font-size: 12px; margin-top: 4px; }
+
+/* 上传卡片配额横幅（借鉴 MinerU 服务策略横幅） */
+.quota-banner {
+  margin-top: 16px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: var(--blue-bg);
+  color: var(--blue);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quota-banner.warn { background: var(--amber-bg); color: var(--amber); }
+
+.quota-banner .qb-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
 }
 
 /* 顶部导航（sticky） */
@@ -469,8 +607,13 @@ th, td { text-align: left; padding: 6px 8px; }
 
 /* ── 响应式 ───────────────────────────────── */
 
+@media (max-width: 768px) {
+  /* 侧栏折叠为顶部区块，单列堆叠 */
+  .layout { flex-direction: column; padding: 0 14px 48px; }
+  .sidebar { width: 100%; position: static; }
+}
+
 @media (max-width: 640px) {
-  .page { padding: 0 14px 48px; }
   .hero h1 { font-size: 24px; letter-spacing: -0.8px; }
   .brand-sub { display: none; }
   .nav-stats .pill.hide-mobile { display: none; }

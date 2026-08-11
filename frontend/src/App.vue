@@ -1,6 +1,8 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import UploadPanel from './components/UploadPanel.vue'
+import SidebarPanel from './components/SidebarPanel.vue'
+import { useParseTask } from './composables/useParseTask'
 
 const books = ref([])
 const quota = ref(null)
@@ -31,6 +33,9 @@ async function refreshSettings() {
     backendDown.value = false
   } catch { backendDown.value = true }
 }
+
+// 解析任务共享状态（侧栏实时进度 + 上传区触发共用）
+const parseTask = useParseTask(books, refreshBooks, refreshQuota)
 
 onMounted(() => { refreshBooks(); refreshQuota(); refreshSettings() })
 </script>
@@ -69,14 +74,28 @@ onMounted(() => { refreshBooks(); refreshQuota(); refreshSettings() })
       </div>
     </header>
 
-    <main class="page">
-      <section class="hero">
-        <h1>教材处理工作台</h1>
-        <p>上传 PDF → 自动解析并修正格式 → 下载 Markdown / 导入 Obsidian</p>
-      </section>
+    <!-- 左窄右宽双栏（借鉴 MinerU 工作台布局） -->
+    <div class="layout">
+      <aside class="sidebar">
+        <SidebarPanel :books="books" :quota="quota" :settings="settings" :parse-task="parseTask" />
+      </aside>
 
-      <UploadPanel :books="books" :quota="quota" :settings="settings"
-                   @changed="refreshBooks(); refreshQuota()" />
-    </main>
+      <main class="content">
+        <section class="hero">
+          <h1>教材处理工作台</h1>
+          <p>上传 PDF → 自动解析并修正格式 → 下载 Markdown / 导入 Obsidian</p>
+        </section>
+
+        <UploadPanel :books="books" :quota="quota" :settings="settings" :parse-task="parseTask"
+                     @changed="refreshBooks(); refreshQuota()" />
+
+        <!-- 对比预览占位（L-6，本次不做功能） -->
+        <section class="card placeholder">
+          <span class="ph-icon">🔍</span>
+          <div class="ph-title">文件对比预览（规划中）</div>
+          <div class="ph-desc">未来支持原始 / 重建后 / 导出产物对比</div>
+        </section>
+      </main>
+    </div>
   </div>
 </template>

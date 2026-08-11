@@ -373,34 +373,37 @@ uvicorn 实测 /api/quota 双维度字段 + ad-hoc 行为验证 7 项全过
 ### 改动清单
 
 **P0 布局骨架**
-- [ ] **L-1 App.vue**：`.page` 内改 `.layout`（flex，max-width 1080px，gap 24px）+
-      `<aside>`（280px 固定）+ `<main>`（flex:1）；header 保留
-- [ ] **L-2 style.css**：新增 `.layout`/`.sidebar`/`.content` 布局类 + 侧栏卡片样式 +
+- [x] **L-1 App.vue**：`.page` 内改 `.layout`（flex，max-width 1080px，gap 24px）+
+      `<aside>`（260px 固定，sticky）+ `<main>`（flex:1）；header 保留
+- [x] **L-2 style.css**：新增 `.layout`/`.sidebar`/`.content` 布局类 + 侧栏卡片样式 +
       响应式（<768px 侧栏折叠为顶部区块，单列堆叠）
 
 **P0 左侧边栏**
-- [ ] **L-3 新组件 SidebarPanel.vue**（props: books/quota/settings）：
+- [x] **L-3 新组件 SidebarPanel.vue**（props: books/quota/settings/parseTask）：
       - 限额卡片：优先配额 X/1000 进度条（超限变 amber + 「已进普通队列（较慢）」）、
         文件 X/5000、未配 key 提示
       - 任务卡片：解析中的书（书名 + 批次进度条 + 百分比）、待解析/失败书快捷「开始解析」、
-        无任务空状态「暂无解析任务」
-- [ ] **L-4 解析轮询逻辑上移**：UploadPanel 的 parsingId/progress/schedulePoll 提取到
-      App.vue（或 composable useParseTask.js），边栏与上传区共用同一进度源
+        无任务空状态「暂无解析任务」；解析消息（启动/轮询失败/完成）卡片级展示
+- [x] **L-4 解析轮询逻辑上移**：UploadPanel 的 parsingId/progress/schedulePoll 提取到
+      composable useParseTask.js（App 持有，reactive 返回），边栏与上传区共用同一进度源；
+      自动接管「解析中」的书（刷新页面恢复轮询）保留
 
 **P0 右侧主区**
-- [ ] **L-5 UploadPanel.vue**：删除内部进度条（挪到边栏任务卡片）；上传区 + 教材列表保留；
-      「开始解析」触发后进度显示在左侧任务卡片
-- [ ] **L-6 对比预览占位**：右侧底部 `<section class="card placeholder">` 虚线边框 +
+- [x] **L-5 UploadPanel.vue**：删除内部进度条（挪到边栏任务卡片）；上传区 + 教材列表保留；
+      「开始解析」触发后进度显示在左侧任务卡片；上传卡片底部加配额策略横幅（借鉴 MinerU）
+- [x] **L-6 对比预览占位**：右侧底部 `<section class="card placeholder">` 虚线边框 +
       「🔍 文件对比预览（规划中）—— 未来支持原始/重建/导出产物对比」，无交互
 
 **P1 验证**
-- [ ] **L-7 前端 npm run build + 手测**：上传→解析→左侧进度条实时更新→下载 ZIP 全链路
-- [ ] **L-8 回归**：配额徽标、Obsidian 导入、删除教材按钮、章节下拉均正常
+- [x] **L-7 前端 npm run build + 冒烟**：build 通过（gzip 30.84KB）；起后端 + vite preview
+      实测页面 200 / 新 JS/CSS 资源 200 / /api/health /api/quota /api/books 正常
+- [x] **L-8 回归**：代码审查（parseMsg 全分支可见、.side-card h3 特异性、.page 残留清零）；
+      后端 API 全通；功能回归（上传/解析/导入/删除/章节下拉逻辑未动）
 
-### 决策点（请确认）
-1. 左栏宽度：280px（默认）还是 320px？
-2. 教材列表归属：右侧主区（推荐，左侧纯状态栏）还是也进左侧？
-3. 对比预览占位：只放右侧底部一个卡片即可，还是右侧顶部也留标题区？
+### 决策点（2026-08-11 已定）
+1. 左栏宽度：**260px**（参考 MinerU 侧边栏紧凑宽度；280px 偏宽、320px 太宽）
+2. 教材列表归属：**右侧主区**（左侧纯状态栏，与规划推荐一致）
+3. 对比预览占位：**右侧底部一个卡片**（不放顶部标题区）
 
 ### 风险
 - 轮询逻辑上移改动较大，回归重点：解析进度实时性、刷新页面恢复轮询
