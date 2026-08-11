@@ -8,8 +8,8 @@ import time
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from urllib.parse import quote
 
@@ -317,6 +317,38 @@ async def list_chapters(book_id: int):
     return {"book_id": book_id, "chapters": [{"no": i + 1, "title": t} for i, t in enumerate(titles)]}
 
 
+@router.get("/books/{book_id}/media/{file_path:path}")
+async def book_media(book_id: int, file_path: str):
+    """md 目录内图片/附件静态服务（并排预览 markdown 渲染用，2026-08-11 新增）。"""
+    with get_conn() as conn:
+        row = conn.execute("SELECT id, title FROM books WHERE id=?", (book_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "book not found")
+    md_dir = settings.md_dir / f"b{book_id}_{row['title']}"
+    target = (md_dir / file_path).resolve()
+    if not target.is_relative_to(md_dir.resolve()):
+        raise HTTPException(400, "非法路径")
+    if not target.exists() or not target.is_file():
+        raise HTTPException(404, "文件不存在")
+    return FileResponse(target)
+
+
+@router.api_route("/books/{book_id}/pdf", methods=["GET", "HEAD"])
+async def book_pdf(book_id: int):
+    """返回原始 PDF（浏览器 iframe/embed 内嵌预览用，2026-08-11 新增）。HEAD 供前端探测可用性。"""
+    with get_conn() as conn:
+        row = conn.execute("SELECT raw_path FROM books WHERE id=?", (book_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "book not found")
+    raw_path = row["raw_path"] or ""
+    if not raw_path:
+        raise HTTPException(404, "该教材无原始 PDF 文件")
+    pdf = Path(raw_path)
+    if not pdf.exists() or pdf.suffix.lower() != ".pdf":
+        raise HTTPException(404, "原始 PDF 文件不存在")
+    return FileResponse(pdf, media_type="application/pdf", filename=pdf.name)
+
+
 @router.get("/books/{book_id}/compare")
 async def compare_report(book_id: int):
     """解析质检报告：结构统计 / 表格门禁原因分布 / 图片缺失 / 警告（2026-08-11 新增）。"""
@@ -333,8 +365,8 @@ async def compare_report(book_id: int):
 
 
 @router.get("/books/{book_id}/compare/chapter/{chapter_no}")
-async def chapter_diff(book_id: int, chapter_no: int):
-    """按章 raw vs rebuilt 行级 diff（2026-08-11 新增）。"""
+async def chapter_diff(book_id: int, chapter_no: int, as_format: str = Query("diff", alias="as")):
+    """按章对比：as=diff（默认，raw vs rebuilt 行级 diff）/ as=markdown（rebuilt 原文）。"""
     from ..services import compare
 
     with get_conn() as conn:
@@ -342,6 +374,8 @@ async def chapter_diff(book_id: int, chapter_no: int):
     if not row:
         raise HTTPException(404, "book not found")
     try:
+        if as_format == "markdown":
+            return compare.chapter_markdown(book_id, row["title"], chapter_no)
         return compare.build_chapter_diff(book_id, row["title"], chapter_no)
     except FileNotFoundError as exc:
         raise HTTPException(400, str(exc))

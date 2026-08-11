@@ -553,3 +553,42 @@ uvicorn 实测 /api/quota 双维度字段 + ad-hoc 行为验证 7 项全过
 11 章/表统计正常)、**/api/books/6/compare/chapter/1 200**(diff 数据正常)、
 https 页面 200 + 新 assets(index-fMHmIlzj.js)200
 **注意**:服务器 books 表 id 从 6 开始(旧书删除自增),验证别用 id=1
+
+
+---
+
+## 并排预览:原 PDF vs 重建 Markdown(2026-08-11 已执行完毕)
+
+**背景**:按章文本 diff(红删绿增)脱离版式,图/表格布局/页码位置不可见,不直观。
+改为「左原 PDF + 右渲染后 Markdown」并排对照,依赖浏览器原生 PDF viewer,零 pdf.js 依赖。
+
+### 改动清单
+
+**后端(routes.py + compare.py)**
+- [x] **SBS-1** `GET /api/books/{id}/pdf`(methods GET+HEAD):FileResponse 返回 raw_path 原始 PDF;
+      404 覆盖 book 不存在 / 无 raw_path / 文件缺失或非 .pdf;HEAD 供前端探测可用性
+      (iframe 对 HTTP 404 不触发 error 事件,必须显式探测)
+- [x] **SBS-2** `GET /api/books/{id}/compare/chapter/{n}?as=markdown`:compare.py 新增 chapter_markdown,
+      复用 export_rebuilt 单章产物,返回 {chapter, title, page_range, markdown}
+      (Query alias="as" 规避 Python 关键字)
+- [x] **SBS-3** `GET /api/books/{id}/media/{path}`:md 目录内图片静态服务(相对路径图引用 → 绝对 URL),
+      resolve + is_relative_to 校验防路径穿越(URL 编码 %2e%2e 也拦)
+
+**前端(Vue 3)**
+- [x] **SBS-4** 依赖:marked@18 + dompurify@3(此前 A6 清过 marked,现加回;gzip 29.93→58.80KB)
+- [x] **SBS-5** SideBySideView.vue:左栏 iframe(`/api/books/{id}/pdf#page={起始页}`,page_range 解析),
+      右栏 marked 渲染章节 markdown(图片相对路径改写为 media 端点,DOMPurify 消毒);
+      章节下拉联动两侧;HEAD 探测 PDF 可用性,不可用显示降级提示但 markdown 照常
+- [x] **SBS-6** ComparePanel.vue 新增「并排预览」tab(report | diff | sidebyside),
+      复用 diffTarget 章节联动;style.css 双栏 grid + <860px 单栏折叠
+
+**验证(2026-08-11)**
+- [x] pytest 66/66 全绿(+12:chapter_markdown 函数级/越界、as=markdown 路由、pdf 路由 200/404、
+      media 路由 200/404/穿越)
+- [x] 前端 npm run build 通过(gzip 58.80KB)
+- [x] Playwright + Edge 实测 15/15(export/verify_sbs.py):b6 PDF iframe 加载、markdown 渲染、
+      切章联动(iframe #page + 右栏刷新)、b1 无 raw_path 降级提示 + markdown 仍渲染、无 JS 错误;
+      截图 export/shots/sbs-*.png
+- **已知边界**:章 page_range 是批级区间(如第 2 章仍标 p1-25),PDF #page 定位为批级粗定位,
+  精确页码待本地 MinerU(拿 page_idx)后改进;iframe 每次切章重载 PDF(可接受);
+  未做滚动同步/页内高亮(二期 pdf.js 选项)

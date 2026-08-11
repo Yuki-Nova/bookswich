@@ -383,6 +383,80 @@ a:hover { text-decoration: underline; }
   background: var(--bg-subtle);
 }
 
+/* 并排预览：左 PDF / 右 Markdown */
+.sbs-view {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.sbs-pane {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.sbs-frame {
+  width: 100%;
+  height: 640px;
+  border: none;
+  background: #fff;
+}
+
+.sbs-md {
+  max-height: 640px;
+  overflow: auto;
+  padding: 16px 20px;
+  background: var(--bg-card);
+}
+
+.sbs-md .md-body {
+  font-size: 14px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.sbs-md .md-body img {
+  max-width: 100%;
+  border-radius: 4px;
+  margin: 8px 0;
+}
+
+.sbs-md .md-body table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 13px;
+  max-width: 100%;
+  overflow-x: auto;
+  display: block;
+}
+
+.sbs-md .md-body th, .sbs-md .md-body td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+
+.sbs-md .md-body pre {
+  background: var(--bg-subtle);
+  padding: 10px;
+  border-radius: var(--r-md);
+  overflow-x: auto;
+}
+
+.sbs-md .md-body code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+@media (max-width: 860px) {
+  .sbs-view { grid-template-columns: 1fr; }
+  .sbs-frame { height: 480px; }
+}
+
 /* 上传卡片配额横幅（借鉴 MinerU 服务策略横幅） */
 .quota-banner {
   margin-top: 16px;

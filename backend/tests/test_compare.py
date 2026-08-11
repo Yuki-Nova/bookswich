@@ -142,6 +142,24 @@ def test_chapter_diff_out_of_range(fake_book):
         compare.build_chapter_diff(1, "测试教材", 99)
 
 
+# ── 章节 markdown（并排预览数据源）─────────────────────
+
+
+def test_chapter_markdown(fake_book):
+    """as=markdown 返回 rebuilt 单章原文，含章节标题。"""
+    d = compare.chapter_markdown(1, "测试教材", 1)
+    assert d["chapter"] == 1
+    assert d["title"] == "第1章 绪论"
+    assert d["page_range"] == "p1-25"
+    assert "第1章 绪论" in d["markdown"]
+    assert "图1" in d["markdown"]
+
+
+def test_chapter_markdown_out_of_range(fake_book):
+    with pytest.raises(ValueError):
+        compare.chapter_markdown(1, "测试教材", 99)
+
+
 # ── 路由 ─────────────────────────────────────────────
 
 
@@ -168,5 +186,71 @@ def test_compare_routes(fake_book):
         assert r2.status_code == 200
         assert r2.json()["chapter"] == 1
 
+        # as=markdown 返回 rebuilt 原文
+        r3 = c.get("/api/books/1/compare/chapter/1?as=markdown")
+        assert r3.status_code == 200
+        assert "markdown" in r3.json()
+        assert "第1章 绪论" in r3.json()["markdown"]
+
         assert c.get("/api/books/999/compare").status_code == 404
         assert c.get("/api/books/1/compare/chapter/99").status_code == 400
+
+
+def test_pdf_route(fake_book):
+    """GET /api/books/{id}/pdf 返回原始 PDF；无 raw_path 404。"""
+    from app.db import init_db, get_conn
+
+    init_db()
+    raw_dir = settings.raw_dir
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    pdf_file = raw_dir / "sample.pdf"
+    pdf_file.write_bytes(b"%PDF-1.4 fake")
+
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO books (title, page_count, raw_path, parse_status) "
+            "VALUES ('测试教材', 25, ?, 'structure_ok')",
+            (str(pdf_file),),
+        )
+
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    with TestClient(app) as c:
+        r = c.get("/api/books/1/pdf")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/pdf"
+        assert r.content.startswith(b"%PDF")
+
+        # 无 raw_path 的书
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO books (title, page_count, parse_status) "
+                "VALUES ('无PDF', 10, 'structure_ok')"
+            )
+        assert c.get("/api/books/2/pdf").status_code == 404
+        assert c.get("/api/books/999/pdf").status_code == 404
+
+
+def test_media_route(fake_book):
+    """GET /api/books/{id}/media/... 返回 md 内图片；路径穿越/缺失 400/404。"""
+    from app.db import init_db, get_conn
+
+    init_db()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO books (title, page_count, parse_status) VALUES ('测试教材', 25, 'structure_ok')"
+        )
+
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    with TestClient(app) as c:
+        r = c.get("/api/books/1/media/images/a.jpg")
+        assert r.status_code == 200
+        assert r.content == b"img"
+
+        assert c.get("/api/books/1/media/images/nope.jpg").status_code == 404
+        # 路径穿越（URL 编码 %2e%2e，避免客户端规范化）
+        assert c.get("/api/books/1/media/%2e%2e/batch_01_p1-25.md").status_code == 400
+        assert c.get("/api/books/999/media/images/a.jpg").status_code == 404

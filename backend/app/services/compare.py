@@ -188,3 +188,27 @@ def build_chapter_diff(book_id: int, book_title: str, chapter_no: int) -> dict:
         "rebuilt_lines": len(b),
         "diff": diff,
     }
+
+
+def chapter_markdown(book_id: int, book_title: str, chapter_no: int) -> dict:
+    """按章 rebuilt markdown 原文（并排预览右栏数据源）。
+
+    返回 {chapter, title, page_range, markdown}；markdown 为 export_rebuilt
+    单章产物（标题按层级打标，表格/公式保持导出口径）。
+    """
+    structure_file = settings.build_dir / f"b{book_id}_{book_title}" / "structure.json"
+    if not structure_file.exists():
+        raise FileNotFoundError(f"结构重建产物缺失：{structure_file}")
+    structure = json.loads(structure_file.read_text(encoding="utf-8"))
+    chapters = structure.get("chapters", [])
+    if chapter_no < 1 or chapter_no > len(chapters):
+        raise ValueError(f"chapter 超出范围（1-{len(chapters)}）")
+    ch = chapters[chapter_no - 1]
+    md = export_rebuilt(book_id, book_title, chapter=chapter_no)
+    return {
+        "book": book_title,
+        "chapter": chapter_no,
+        "title": ch.get("title", ""),
+        "page_range": ch.get("page_range", ""),
+        "markdown": md,
+    }

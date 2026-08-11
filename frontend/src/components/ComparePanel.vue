@@ -3,17 +3,18 @@
 // 摘要卡 + 警告区 + 章节明细表；「章节对比」tab 交给 ChapterDiff
 import { ref, watch } from 'vue'
 import ChapterDiff from './ChapterDiff.vue'
+import SideBySideView from './SideBySideView.vue'
 
 const props = defineProps({
   bookId: Number,
   bookTitle: String,
 })
 
-const tab = ref('report')      // report | diff
+const tab = ref('report')      // report | diff | sidebyside
 const report = ref(null)
 const loading = ref(false)
 const error = ref('')
-const diffTarget = ref(0)      // 「对比」按钮选中的章 → 传给 ChapterDiff
+const diffTarget = ref(0)      // 「对比」按钮选中的章 → 传给 ChapterDiff / SideBySideView
 
 // 章节表「对比」→ 切到对比 tab 并选中该章
 function openDiff(no) {
@@ -57,6 +58,7 @@ const GATE_TEXT = {
       <div class="cmp-tabs">
         <button class="cmp-tab" :class="{ on: tab === 'report' }" @click="tab = 'report'">质检报告</button>
         <button class="cmp-tab" :class="{ on: tab === 'diff' }" @click="tab = 'diff'">章节对比</button>
+        <button class="cmp-tab" :class="{ on: tab === 'sidebyside' }" @click="tab = 'sidebyside'">并排预览</button>
       </div>
     </div>
 
@@ -118,8 +120,11 @@ const GATE_TEXT = {
         <p v-if="!report.chapters.length" class="msg">无章节（无编号教材兜底为「全文」）</p>
       </div>
 
-      <ChapterDiff v-else :book-id="bookId" :book-title="bookTitle"
+      <ChapterDiff v-else-if="tab === 'diff'" :book-id="bookId" :book-title="bookTitle"
                    :chapters="report.chapters" :initial-chapter="diffTarget" />
+
+      <SideBySideView v-else-if="tab === 'sidebyside'" :book-id="bookId" :book-title="bookTitle"
+                      :chapters="report.chapters" :initial-chapter="diffTarget" />
     </template>
   </section>
 </template>
