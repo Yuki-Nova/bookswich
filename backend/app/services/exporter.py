@@ -269,6 +269,35 @@ def _to_oss_links(
     return md_text
 
 
+def _merge_raw_batches(book_id: int, book_title: str) -> str:
+    """合并全部批次原始 md（带批次页注释），用于无章节兜底导出。"""
+    md_dir = settings.md_dir / f"b{book_id}_{book_title}"
+    batches = load_batches(md_dir)
+    if not batches:
+        raise FileNotFoundError(f"未找到解析批次：{md_dir}")
+    parts: list[str] = []
+    for b in batches:
+        parts.append(f"\n<!-- batch {b['idx']}: p{b['page_start']}-{b['page_end']} -->\n")
+        parts.append(b["text"])
+    return "\n".join(parts)
+
+
+def _fallback_full_chapter(book_id: int, book_title: str, pages_covered: str) -> dict:
+    """无章节兜底章节：整本一个「全文」章节，正文 = 原始批次合并。"""
+    full = _merge_raw_batches(book_id, book_title)
+    return {
+        "title": "全文",
+        "level": 1,
+        "page_range": pages_covered or "全本",
+        "lines": ["全文"] + full.splitlines(),
+        "char_count": len(full),
+        "image_count": 0,
+        "table_count": 0,
+        "children": [],
+        "board": False,
+    }
+
+
 def export_obsidian_zip(book_id: int, book_title: str, image_mode: str = "local") -> bytes:
     """Obsidian 版导出：按章拆分 + MOC 总览 + 各章独立 images/（或 OSS 外链）。
 
@@ -279,6 +308,9 @@ def export_obsidian_zip(book_id: int, book_title: str, image_mode: str = "local"
         ├── 02_<章名>/...
         └── ...
 
+    无章节兜底（2026-08-11，论文/单篇资料等无章节教材）：structure.json 缺失或
+    chapters 为空时整本合并为一个「全文」章节，不再报错拒绝导入。
+
     image_mode:
       - "local"（默认）：图片打包进 zip（旧行为，解压即 Obsidian/Typora 可读）
       - "oss"：图片上传 OSS，md 引用改公网 URL，zip 只含文本（vault 纯文本化）
@@ -286,12 +318,14 @@ def export_obsidian_zip(book_id: int, book_title: str, image_mode: str = "local"
     if image_mode not in ("local", "oss"):
         raise ValueError("image_mode 必须是 local / oss")
     structure_file = settings.build_dir / f"b{book_id}_{book_title}" / "structure.json"
-    if not structure_file.exists():
-        raise FileNotFoundError(f"结构重建产物缺失：{structure_file}")
-    structure = json.loads(structure_file.read_text(encoding="utf-8"))
-    chapters = structure.get("chapters", [])
+    chapters: list[dict] = []
+    pages_covered = ""
+    if structure_file.exists():
+        structure = json.loads(structure_file.read_text(encoding="utf-8"))
+        chapters = structure.get("chapters", [])
+        pages_covered = structure.get("pages_covered", "")
     if not chapters:
-        raise ValueError("结构重建产物无章节，无法生成 Obsidian 版")
+        chapters = [_fallback_full_chapter(book_id, book_title, pages_covered)]
 
     src_md_dir = settings.md_dir / f"b{book_id}_{book_title}"
     book_folder = _sanitize_filename(book_title)

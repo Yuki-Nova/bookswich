@@ -205,8 +205,9 @@ data/
 1. ~~**导入 Obsidian 报「结构重建产物缺失」**~~（**已解决 2026-08-08**）：b3《西方经济学（宏观部分 第7版）》
    是无编号教材走不了结构重建——7f2c65e 增加无编号兜底（MinerU # 标题 + 目录页清单过滤），
    b3 重建 11 章全识别、内容覆盖 97%
-2. **无章节文件不能导入**：某些文件（无章节结构）无法走 `import-obsidian`；后续收藏论文/单篇资料时会有需求，
-   需支持「无章节兜底导入」（整本一个章节或直接放根目录）
+2. ~~**无章节文件不能导入**~~（**已解决 2026-08-11**）：某些文件（无章节结构）无法走 `import-obsidian`；
+   `export_obsidian_zip` 增加无章节兜底——structure.json 缺失或 chapters 为空时整本合并为一个「全文」章节
+   （正文=原始批次合并），本地/OSS 两种图模式均支持；顺带解决「缺 structure.json 导入报错」（见文末小节）
 3. ~~**MinerU 配额规则修正**~~（**已解决 2026-08-10**）：实测免费额度不是「1000 页/天」——**优先 2 解析页数每日 1000 页**，
    解析**总限制每日 5000 份文件**（一份 PDF 无论多少页均按 1 算）。配额模型已按双维度改造（见文末小节），
    前端/文档文案已同步
@@ -447,3 +448,22 @@ uvicorn 实测 /api/quota 双维度字段 + ad-hoc 行为验证 7 项全过
 - [x] ad-hoc 行为验证 14/14（rebuild book 字段 / 死代码已删 / sanitize 5 场景 / 大小常量 / delete_prefix 存在）
 - [x] 前端 npm run build 通过（gzip 29.93KB）
 - [x] 已知限制：旧库中 title 含非法字符的教材，导出时已按 basename 安全化；OSS 清理仅覆盖 key 前缀 <书名>/images/，历史遗留其他前缀需人工清理
+
+
+---
+
+## 无章节兜底导入（2026-08-11 已执行完毕，生产问题 2 解决）
+
+**背景**：论文/单篇资料等无章节文件无法走 import-obsidian（export_obsidian_zip 对 chapters 为空直接报错）；
+顺带覆盖「极少数教材缺 structure.json 导入报错」已知限制。
+
+**改动**（exporter.py）：
+- [x] FB-1 _merge_raw_batches：合并全部批次原始 md（带批次页注释），作为兜底正文
+- [x] FB-2 _fallback_full_chapter：构造「全文」章节（level 1，page_range=pages_covered）
+- [x] FB-3 export_obsidian_zip：structure.json 缺失或 chapters 为空 → 整本一个「全文」章节，
+      不再 FileNotFoundError / ValueError；local 与 oss 图模式均走同一章节管线（zip 结构 01_全文/全文.md + MOC 链接）
+- [x] FB-4 测试：tests/test_fallback.py 7 用例（空章节兜底 / 缺 structure 兜底 / oss 模式无图落盘 /
+      _safe_stem 6 场景 / export_zip md_name sanitize）
+
+**验证（2026-08-11）**：pytest 54/54 全绿（47 旧 + 7 新）
+**README**：已知限制两条已更新（无章节导入已支持；缺 structure.json 报错已消除）
