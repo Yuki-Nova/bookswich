@@ -528,3 +528,28 @@ uvicorn 实测 /api/quota 双维度字段 + ad-hoc 行为验证 7 项全过
 **验证（2026-08-11）**：Playwright 断言 12/12 全 PASS——首页双栏/三卡/上传横幅/占位、
 📊 打开报告（摘要卡/门禁 pill/章节表）、切章节对比 tab（diff 渲染/增删标记/相同行折叠）、
 无 JS 错误（favicon 修复后）。截图 export/shots/01-home.png、02-compare-report.png、03-compare-diff.png。
+
+
+---
+
+## 生产部署:质检与对比功能上线(2026-08-11)
+
+**部署对象**:本地 `7fccb78`(布局改版 + 质检报告 + 按章对比 + 浏览器验证修复)
+
+**实际部署形态(侦察确认,skill 已同步)**:
+- 目录:`/www/wwwroot/bookswich`(宝塔;`/opt/backend` 为 June 残留已废弃)
+  - `backend/`(app + requirements.txt + .venv)+ `dist/`(前端 build 产物,nginx root)+ `data/`(解析产物)
+- systemd `bookswich.service`:8001 端口(8000 是 herbtool)
+- nginx `bookswich.yukinova.top`:dist 静态 + `/api/` 反代 8001(client_max_body_size 200m)
+
+**流程(2026-08-11 实测,paramiko)**:
+1. 本地 python tarfile 打包:backend(app+requirements.txt,排除 __pycache__/.env)+ frontend/dist
+2. SFTP 上传 `/www/wwwroot/bookswich/*_new.tar.gz`
+3. `tar -xzf backend_new.tar.gz -C backend && tar -xzf dist_new.tar.gz -C .` → 覆盖式解压
+4. `.venv/bin/pip install -r requirements.txt`(补齐 python-multipart,RC=0)
+5. `systemctl restart bookswich` → active
+
+**验证(生产)**:/api/health 200、/api/books 200、**/api/books/6/compare 200**(真实书 id=6《西方经济学》,
+11 章/表统计正常)、**/api/books/6/compare/chapter/1 200**(diff 数据正常)、
+https 页面 200 + 新 assets(index-fMHmIlzj.js)200
+**注意**:服务器 books 表 id 从 6 开始(旧书删除自增),验证别用 id=1
