@@ -393,8 +393,8 @@ uvicorn 实测 /api/quota 双维度字段 + ad-hoc 行为验证 7 项全过
 **P0 右侧主区**
 - [x] **L-5 UploadPanel.vue**：删除内部进度条与教材列表（进度挪侧栏任务卡片、列表挪侧栏教材卡片）；
       仅保留上传卡片 + 配额策略横幅（借鉴 MinerU）；「开始解析」触发后进度显示在左侧任务卡片
-- [x] **L-6 对比预览占位**：右侧底部 `<section class="card placeholder">` 虚线边框 +
-      「🔍 文件对比预览（规划中）—— 未来支持原始/重建/导出产物对比」，无交互
+- [x] **L-6 对比预览（占位转真功能 2026-08-11）**：原虚线占位 → ComparePanel（质检报告 tab +
+      章节对比 tab，详见文末「解析质检与按章对比」小节）；未选中教材时仍显示占位提示
 
 **P1 验证**
 - [x] **L-7 前端 npm run build + 冒烟**：build 通过（gzip 30.84KB）；起后端 + vite preview
@@ -473,3 +473,37 @@ uvicorn 实测 /api/quota 双维度字段 + ad-hoc 行为验证 7 项全过
 
 **验证（2026-08-11）**：pytest 54/54 全绿（47 旧 + 7 新）
 **README**：已知限制两条已更新（无章节导入已支持；缺 structure.json 报错已消除）
+
+
+---
+
+## 解析质检与按章对比（2026-08-11 已执行完毕）
+
+**背景**：L-6 对比预览占位转真功能（用户拍板按两步走）。第一步质检报告（结构/表格门禁/图片/警告统计），
+第二步按章 raw vs rebuilt 行级 diff（difflib）。
+
+**第一步 · 质检报告**
+- [x] **CMP-1 services/compare.py** uild_compare_report：章节树（页范围/字符/图/表转保数）、
+      表格门禁原因分布（复用 _table_quality_gates 的 reason：merged/cols=N/rows=N/cell_too_long…）、
+      图片引用与缺失清单、质检警告（节编号连续）+ 孤儿标题 + pre_matter 丢弃量、raw vs rebuilt 体积
+- [x] **CMP-2 路由** GET /api/books/{id}/compare（404/400 处理）
+- [x] **CMP-3 前端 ComparePanel.vue**：摘要统计卡（章节/覆盖页/表转MD/图/缺图/警告）+
+      警告区（红色可折叠）+ 表格门禁原因 pill + 章节明细表（每章「对比」按钮联动）
+
+**第二步 · 按章对比**
+- [x] **CMP-4 compare.py** uild_chapter_diff：按章 page_range 取相交批次为 raw 对照（粗对齐），
+      difflib.SequenceMatcher 生成行级 diff（eq 合并计数 / del / add），单章 1786 项可控
+- [x] **CMP-5 路由** GET /api/books/{id}/compare/chapter/{chapter_no}
+- [x] **CMP-6 前端 ChapterDiff.vue**：章节下拉 + 行级 diff 渲染（−红 + 绿、相同行折叠为「… N 行相同 …」、
+      max-height 滚动、行数/页范围元信息）
+
+**接线**：侧栏教材卡片新增 📊 按钮（emit preview）→ App.selectedBook → 右侧 ComparePanel；
+选中卡片蓝色高亮；未选中显示占位提示。
+
+**验证（2026-08-11）**：
+- pytest 62/62 全绿（+8：报告结构/表格门禁/图片缺失/警告孤儿/缺 structure/diff 三类/越界/路由 404·400）
+- 真实数据 b1《医药应用概率统计》：11 章、表 176 转/173 保（merged=138 + 各列数超限 33 + 超长 2，与
+  2026-08-10 门禁实测记录完全吻合）、图片 110 引用 0 缺失、rebuilt 82.8万/raw 85.5万字符、diff 三类齐全
+- 前端 npm run build（gzip 32.90KB）+ preview 冒烟（页面/资源 200）
+- **已知边界**：raw 对照为批级粗对齐（章 page_range 是批区间），diff 头部有 export_rebuilt 的文档头差异；
+  行级 diff 无字符级高亮；单章 5000+ 行时渲染较重（未做虚拟滚动）

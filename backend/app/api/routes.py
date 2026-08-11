@@ -317,6 +317,38 @@ async def list_chapters(book_id: int):
     return {"book_id": book_id, "chapters": [{"no": i + 1, "title": t} for i, t in enumerate(titles)]}
 
 
+@router.get("/books/{book_id}/compare")
+async def compare_report(book_id: int):
+    """解析质检报告：结构统计 / 表格门禁原因分布 / 图片缺失 / 警告（2026-08-11 新增）。"""
+    from ..services import compare
+
+    with get_conn() as conn:
+        row = conn.execute("SELECT id, title FROM books WHERE id=?", (book_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "book not found")
+    try:
+        return compare.build_compare_report(book_id, row["title"])
+    except FileNotFoundError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.get("/books/{book_id}/compare/chapter/{chapter_no}")
+async def chapter_diff(book_id: int, chapter_no: int):
+    """按章 raw vs rebuilt 行级 diff（2026-08-11 新增）。"""
+    from ..services import compare
+
+    with get_conn() as conn:
+        row = conn.execute("SELECT id, title FROM books WHERE id=?", (book_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "book not found")
+    try:
+        return compare.build_chapter_diff(book_id, row["title"], chapter_no)
+    except FileNotFoundError as exc:
+        raise HTTPException(400, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
 @router.get("/books/{book_id}/export")
 async def export_markdown(
     book_id: int,

@@ -7,8 +7,9 @@ const props = defineProps({
   quota: Object,
   settings: Object,
   parseTask: Object,
+  selectedId: Number,   // 对比预览选中的教材（高亮）
 })
-const emit = defineEmits(['changed'])
+const emit = defineEmits(['changed', 'preview'])
 
 const STATUS_TEXT = {
   pending: '待解析',
@@ -162,7 +163,7 @@ async function deleteBook(b) {
       <h3>已入库教材 <span v-if="books.length" class="side-count">（{{ books.length }}）</span></h3>
       <div v-if="books.length" class="side-book-list">
         <div v-for="b in books" :key="b.id" class="side-book"
-             :class="{ parsing: b.parse_status === 'parsing' }">
+             :class="{ parsing: b.parse_status === 'parsing', selected: b.id === selectedId }">
           <div class="side-book-top">
             <span class="side-book-title" :title="b.title">{{ b.title }}</span>
             <span :class="['status-pill', STATUS_PILL[b.parse_status] || 'pill']">
@@ -173,6 +174,7 @@ async function deleteBook(b) {
 
           <div class="side-book-ops">
             <template v-if="isReady(b)">
+              <button class="link-btn" title="质检报告与章节对比" @click="emit('preview', b)">📊</button>
               <select v-model="b._ch" class="chapter-select" :disabled="importingId === b.id">
                 <option :value="0">整本</option>
                 <option v-for="c in chapterMaps[b.id] || []" :key="c.no" :value="c.no">

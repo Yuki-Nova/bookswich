@@ -183,6 +183,10 @@ a:hover { text-decoration: underline; }
   box-shadow: 0 0 0 1px rgba(10, 114, 239, 0.35), 0 4px 12px rgba(10, 114, 239, 0.08);
 }
 
+.side-book.selected {
+  box-shadow: 0 0 0 2px var(--blue), 0 4px 12px rgba(10, 114, 239, 0.15);
+}
+
 .side-book-top {
   display: flex;
   align-items: flex-start;
@@ -241,6 +245,143 @@ a:hover { text-decoration: underline; }
 .placeholder .ph-icon { display: block; font-size: 22px; margin-bottom: 6px; }
 .placeholder .ph-title { font-size: 14px; font-weight: 500; color: var(--text-secondary); }
 .placeholder .ph-desc { font-size: 12px; margin-top: 4px; }
+
+/* ── 解析质检 / 对比（2026-08-11）───────────────── */
+
+.compare-card { overflow: hidden; }
+
+.compare-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.compare-head h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.4px; }
+
+.cmp-sub { color: var(--text-muted); font-weight: 400; font-size: 13px; }
+
+.cmp-tabs { margin-left: auto; display: flex; gap: 4px; }
+
+.cmp-tab {
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.cmp-tab.on { background: var(--text); color: #fff; }
+
+.cmp-summary {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.cmp-stat {
+  flex: 1;
+  min-width: 80px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--bg-subtle);
+  box-shadow: var(--border-shadow);
+  text-align: center;
+}
+
+.cmp-stat b { display: block; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cmp-stat span { font-size: 11px; color: var(--text-muted); }
+.cmp-stat.warn b { color: var(--amber); }
+.cmp-stat.warn.bad b { color: var(--red); }
+
+.cmp-meta { font-size: 12px; color: var(--text-muted); margin: 4px 0 12px; }
+
+.cmp-alerts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+
+.cmp-alert {
+  padding: 8px 12px;
+  border-radius: var(--r-md);
+  background: var(--red-bg);
+  color: var(--red);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.cmp-gates { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; margin-bottom: 12px; }
+.cmp-gate-title { color: var(--text-muted); }
+.cmp-gate-pill {
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: var(--amber-bg);
+  color: var(--amber);
+  font-size: 11px;
+}
+
+.cmp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+
+.cmp-table th {
+  text-align: left;
+  padding: 6px 8px;
+  color: var(--text-muted);
+  font-weight: 500;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.cmp-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  vertical-align: top;
+}
+
+.cmp-ch-title { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 章节 diff */
+.diff-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.diff-ch { margin-left: 0; max-width: 300px; }
+
+.diff-meta { font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono); }
+.diff-meta .d-add { color: var(--green); }
+.diff-meta .d-del { color: var(--red); margin-left: 6px; }
+
+.diff-legend { margin-left: auto; font-size: 11px; color: var(--text-muted); display: flex; gap: 10px; }
+.diff-legend .lg-add::before, .diff-legend .lg-del::before { content: '■ '; }
+.diff-legend .lg-add::before { color: var(--green); }
+.diff-legend .lg-del::before { color: var(--red); }
+
+.diff-view {
+  max-height: 520px;
+  overflow: auto;
+  border-radius: var(--r-md);
+  box-shadow: var(--border-shadow);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.diff-line { display: flex; }
+.diff-line .dmark { width: 22px; flex-shrink: 0; text-align: center; user-select: none; }
+.diff-line .dtext { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-all; padding-right: 8px; }
+.diff-line .dmark.del, .diff-line .dtext.del { background: var(--red-bg); color: var(--red); }
+.diff-line .dmark.add, .diff-line .dtext.add { background: var(--green-bg); color: var(--green); }
+.diff-eq {
+  width: 100%;
+  padding: 2px 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  background: var(--bg-subtle);
+}
 
 /* 上传卡片配额横幅（借鉴 MinerU 服务策略横幅） */
 .quota-banner {
