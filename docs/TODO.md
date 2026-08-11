@@ -507,3 +507,24 @@ uvicorn 实测 /api/quota 双维度字段 + ad-hoc 行为验证 7 项全过
 - 前端 npm run build（gzip 32.90KB）+ preview 冒烟（页面/资源 200）
 - **已知边界**：raw 对照为批级粗对齐（章 page_range 是批区间），diff 头部有 export_rebuilt 的文档头差异；
   行级 diff 无字符级高亮；单章 5000+ 行时渲染较重（未做虚拟滚动）
+
+
+---
+
+## 浏览器自动化验证(2026-08-11,Playwright + 系统 Edge)与 3 处修复
+
+**背景**：用户安装浏览器自动化工具后，对布局改版 + 质检/对比功能做真实浏览器验证
+（headless Edge，1440×960，截图见 export/shots/）。发现并修复 3 个真 bug：
+
+- [x] **BR-1 v-else 链破坏**：ComparePanel 模板中 `<ChapterDiff v-else>` 前有 `<!-- 对比 tab -->`
+      注释节点 → Vue 不识别 v-else，ChapterDiff 永不渲染（报告 tab 正常，对比 tab 空白）。
+      删注释后正常。教训：**v-else 必须紧跟 v-if 元素，中间不能有注释**
+- [x] **BR-2 watch 注册顺序**：ChapterDiff 先注册 `watch(initialChapter, {immediate})` 再注册
+      `watch(chapterNo)`——immediate 回调同步设 chapterNo 时监听器尚未注册，fetch 永不触发，
+      diff 卡在空白。调整为**先注册 chapterNo 监听、再注册 initialChapter 初始化**
+- [x] **BR-3 favicon 404**：index.html 无 icon 引用，控制台 favicon.ico 404 噪音。
+      加 `<link rel="icon" href="/vite.svg">`
+
+**验证（2026-08-11）**：Playwright 断言 12/12 全 PASS——首页双栏/三卡/上传横幅/占位、
+📊 打开报告（摘要卡/门禁 pill/章节表）、切章节对比 tab（diff 渲染/增删标记/相同行折叠）、
+无 JS 错误（favicon 修复后）。截图 export/shots/01-home.png、02-compare-report.png、03-compare-diff.png。

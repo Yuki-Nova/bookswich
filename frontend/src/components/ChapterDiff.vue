@@ -15,12 +15,8 @@ const diff = ref(null)
 const loading = ref(false)
 const error = ref('')
 
-watch(() => props.initialChapter, (no) => {
-  if (no) { chapterNo.value = no; return }
-  // 未点「对比」时默认第一章
-  if (props.chapters?.length && chapterNo.value === 0) chapterNo.value = props.chapters[0].no
-}, { immediate: true })
-
+// ⚠ 顺序关键:先注册 chapterNo 监听(fetch),再注册 initialChapter 初始化——
+// immediate 回调同步设置 chapterNo 时必须已有监听器,否则 diff 永不加载
 watch(chapterNo, async (no) => {
   if (!no) return
   loading.value = true
@@ -37,6 +33,12 @@ watch(chapterNo, async (no) => {
     loading.value = false
   }
 })
+
+watch(() => props.initialChapter, (no) => {
+  if (no) { chapterNo.value = no; return }
+  // 未点「对比」时默认第一章
+  if (props.chapters?.length && chapterNo.value === 0) chapterNo.value = props.chapters[0].no
+}, { immediate: true })
 </script>
 
 <template>

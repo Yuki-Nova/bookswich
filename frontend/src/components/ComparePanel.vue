@@ -118,7 +118,6 @@ const GATE_TEXT = {
         <p v-if="!report.chapters.length" class="msg">无章节（无编号教材兜底为「全文」）</p>
       </div>
 
-      <!-- 对比 tab -->
       <ChapterDiff v-else :book-id="bookId" :book-title="bookTitle"
                    :chapters="report.chapters" :initial-chapter="diffTarget" />
     </template>
