@@ -10,6 +10,7 @@ const emit = defineEmits(['changed'])
 const file = ref(null)
 const uploading = ref(false)
 const uploadingMsg = ref('')   // 上传反馈消息
+const progress = ref(0)        // 上传进度 0-100（XHR onprogress）
 const dragOver = ref(false)
 
 function onFile(e) { file.value = e.target.files[0] || null }
@@ -25,12 +26,30 @@ async function upload() {
   if (!file.value) return
   uploading.value = true
   uploadingMsg.value = ''
+  progress.value = 0
   const fd = new FormData()
   fd.append('file', file.value)
   try {
-    const r = await fetch('/api/books/upload', { method: 'POST', body: fd })
-    const d = await r.json()
-    if (!r.ok) throw new Error(d.detail || '上传失败')
+    const d = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', '/api/books/upload')
+      // 上传进度事件（fetch 不提供 onprogress，必须用 XHR）
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) progress.value = Math.round((e.loaded / e.total) * 100)
+      }
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { resolve(JSON.parse(xhr.responseText)) } catch { reject(new Error('响应解析失败')) }
+        } else {
+          let msg = `上传失败（HTTP ${xhr.status}）`
+          try { const j = JSON.parse(xhr.responseText); if (j.detail) msg = j.detail } catch { /* 非 JSON 响应 */ }
+          reject(new Error(msg))
+        }
+      }
+      xhr.onerror = () => reject(new Error('网络错误'))
+      xhr.upload.onerror = () => reject(new Error('上传中断'))
+      xhr.send(fd)
+    })
     uploadingMsg.value = { text: `已上传《${d.title}》：${d.page_count} 页，可点左侧「开始解析」`, ok: true }
     file.value = null
     emit('changed')
@@ -57,9 +76,16 @@ async function upload() {
     </div>
     <div class="upload-actions">
       <button class="btn" :disabled="!file || uploading" @click="upload">
-        {{ uploading ? '上传中…' : '上传' }}
+        {{ uploading ? `上传中… ${progress}%` : '上传' }}
       </button>
       <button v-if="file" class="btn ghost" @click="file = null">取消</button>
+    </div>
+    <!-- 上传进度条（2026-08-11：XHR onprogress 实时更新） -->
+    <div v-if="uploading" class="upload-progress">
+      <div class="bar">
+        <div class="fill" :style="{ width: progress + '%' }"></div>
+      </div>
+      <div class="task-meta">{{ progress }}%</div>
     </div>
     <p v-if="uploadingMsg" class="msg" :class="uploadingMsg.ok ? 'ok' : 'err'">{{ uploadingMsg.text }}</p>
 

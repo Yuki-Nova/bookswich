@@ -62,6 +62,11 @@ export function useParseTask(booksRef, refreshBooks, refreshQuota) {
     }
     parsingId.value = b.id
     parsing.value = true
+    // 本地乐观更新：立即把该书标为 parsing，busyBook 才能马上匹配（否则要等 refreshBooks 网络往返）
+    if (booksRef.value) {
+      const target = booksRef.value.find(x => x.id === b.id)
+      if (target) target.parse_status = 'parsing'
+    }
     // 优先页数（1000 页/日）用完不拦：MinerU 自动进普通队列，只是慢
     parseMsg.value = quota?.priority_exhausted
       ? { text: '⚠ 已超优先额度（1000 页/日），解析进入普通队列，会较慢', ok: true }
@@ -72,11 +77,15 @@ export function useParseTask(booksRef, refreshBooks, refreshQuota) {
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail || '启动失败')
       schedulePoll()
+      // 后端状态已更新为 parsing，立即刷新列表（busyBook 以服务端状态为准）
+      refreshBooks()
+      refreshQuota()
       return true
     } catch (e) {
       parsing.value = false
       parsingId.value = null
       parseMsg.value = { text: `解析启动失败：${e.message}`, ok: false }
+      refreshBooks()
       return false
     }
   }

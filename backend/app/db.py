@@ -43,3 +43,15 @@ def init_db() -> None:
             conn.execute("ALTER TABLE books ADD COLUMN parse_progress TEXT DEFAULT ''")
         if "quota_files" not in cols:
             conn.execute("ALTER TABLE books ADD COLUMN quota_files INTEGER DEFAULT 0")
+
+
+def recover_stale_parsing() -> int:
+    """重置上次进程异常退出遗留的 parsing 状态（daemon 线程随进程死亡，书会永久卡 parsing、删不掉）。
+
+    返回被重置的记录数。
+    """
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE books SET parse_status='pending', parse_progress='' WHERE parse_status='parsing'"
+        )
+        return cur.rowcount

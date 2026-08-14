@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     mineru_api_key: str = ""
     mineru_base_url: str = ""
 
+    # 可选鉴权：配置后所有 /api 请求须带 X-Auth-Token 头或 ?token=（默认空=不鉴权）
+    api_token: str = ""
+
     # Obsidian vault（可空：配置后「导入 Obsidian」按钮生效）
     obsidian_vault_dir: Path | None = None
     obsidian_sub_dir: str = "教材"  # vault 内教材存放子目录

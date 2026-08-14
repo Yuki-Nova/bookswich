@@ -619,3 +619,30 @@ https 页面 200 + 新 assets(index-fMHmIlzj.js)200
       123 个 .katex 元素渲染、无残留原始公式文本(0 行)、无 JS 错误;
       完整回归 verify_sbs.py 15/15 全 PASS
 - [x] pytest 66/66(后端未动,回归确认)
+
+
+---
+
+## 代码体检第二批次 + 前端视觉改版（2026-08-14 已执行完毕）
+
+**背景**：全量代码复查发现安全/健壮性缺陷（6 项）+ 用户对前端审美不满意。
+
+### 后端缺陷修复（6 项）
+- [x] **SEC-1 create_book 标题穿越**：POST /books 的 title 此前未 sanitize（upload 有 _safe_stem、create 没有），
+      delete/export/compare/media 全用 `b{id}_{title}` 拼路径可穿越。新增 routes._safe_title（保留点号、去路径分隔符与非法字符），create_book 落库前 sanitize
+- [x] **SEC-2 create_book 任意文件读取**：raw_path 此前接受服务器任意路径 copy2 进 data/raw，无鉴权下等于任意文件读取。改为仅允许 data/raw/ 内文件（is_relative_to 校验），越界 400
+- [x] **SEC-3 重启卡 parsing**：解析线程 daemon=True，进程退出后书永久卡 parsing（删不掉 409 + 前端永久轮询）。db.recover_stale_parsing() + lifespan 启动时把 parsing → pending（缓存续跑仍有效）
+- [x] **SEC-4 import-obsidian 前缀判断**：`str(dest).startswith(target)` 改 `dest.is_relative_to(target)`（前缀匹配可被「教材evil」绕过），与 book_media 一致
+- [x] **SEC-5 可选 API_TOKEN 鉴权**：config 新增 api_token（默认空=不鉴权、零破坏）；main.py http 中间件，配置后 /api 须带 X-Auth-Token 头或 ?token=。公开部署建议另配 nginx basic auth 兜整个站点
+- [x] **CLN-1 硬编码默认参数/死代码**：structure.run 去掉 `book_id=1/book_title=医药应用概率统计` 默认值（改必传）；删死代码 page_anchors/_norm（零引用）
+- [x] **FIX-1 OSS MIME 硬编码**：upload 此前全部 Content-Type: image/jpeg，改按扩展名（png/gif/webp/bmp/svg）
+
+### 前端（视觉改版 v2 + 下载链接一致性）
+- [x] **UI-1 设计系统升级**：style.css 全面重写——浅灰画布 #f6f6f8 + 白卡片 + indigo 渐变主色（#4f46e5→#7c3aed）；卡片改「1px 边框 + 柔和投影」；品牌 logo 渐变圆角；主按钮 indigo；pill 带彩色边框；focus-visible 焦点环；diff/预览窗细滚动条；补上旧版未定义的 --border/--bg-card（并排预览表格边框/背景此前因此失效）
+- [x] **UI-2 下载链接统一**：整本/按章 rebuilt + raw + Obsidian 版 ZIP 全部改 local 自包含（此前整本/raw/obsidian 硬编码 images=oss，未配 OSS 时直接 400）；仅「📥 导入」保持 oss（后端 import 要求，vault 纯文本化）
+- [x] **UI-3 字体**：--font-sans 保留 Geist（index.html 已加载），补齐 Geist Mono
+
+### 验证（2026-08-14）
+- [x] pytest 66/66 全绿（后端改动未破坏既有测试）
+- [x] 前端 npm run build 通过（gzip 136.99KB，与基线一致）
+- [x] 真实浏览器（Playwright + headless Edge 1440×960）截图：首页 3 本书渲染、质检报告正常，/api/books、quota、settings、chapters、compare 全 200；截图 export/shots/v2-home.png、v2-compare.png

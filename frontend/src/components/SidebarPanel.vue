@@ -35,11 +35,16 @@ watch(() => props.books, loadChapters, { deep: true })
 
 async function loadChapters() {
   for (const b of props.books) {
-    if (chapterMaps.value[b.id]) continue
+    if (chapterMaps.value[b.id]?.length) continue
     try {
       const r = await fetch(`/api/books/${b.id}/chapters`)
       const d = await r.json()
-      if (d.chapters) chapterMaps.value[b.id] = d.chapters
+      if (d.chapters && d.chapters.length) {
+        chapterMaps.value[b.id] = d.chapters
+      } else {
+        // 未重建（chapters 为空）→ 不缓存，等书重建完成 books 刷新后重新拉取
+        delete chapterMaps.value[b.id]
+      }
       if (b._ch === undefined) b._ch = 0
     } catch { /* 未重建的书忽略 */ }
   }
@@ -72,11 +77,11 @@ function isReady(b) {
   return b.parse_status === 'parsed' || b.parse_status === 'structure_ok'
 }
 
-// 下载链接：整本 rebuilt / 按章 rebuilt（复用原 UploadPanel 语义）
+// 下载链接：整本 rebuilt / 按章 rebuilt（自包含本地图 ZIP）
 function chapterHref(b) {
   return b._ch
     ? `/api/books/${b.id}/export?format=rebuilt&chapter=${b._ch}`
-    : `/api/books/${b.id}/export?format=rebuilt&images=oss`
+    : `/api/books/${b.id}/export?format=rebuilt`
 }
 
 // 导入 Obsidian：按章拆分写入 vault/教材/<书名>/
@@ -181,9 +186,9 @@ async function deleteBook(b) {
                   {{ c.no }}. {{ c.title }}
                 </option>
               </select>
-              <a class="link-btn" :href="chapterHref(b)" download title="下载 Markdown ZIP（整本或所选章节）">⬇ ZIP</a>
-              <a class="link-btn muted" :href="`/api/books/${b.id}/export?format=raw&images=oss`" download title="原始 OCR 合并版 ZIP">原</a>
-              <a class="link-btn purple" :href="`/api/books/${b.id}/export?format=obsidian&images=oss`" download title="Obsidian 版 ZIP">📓 版</a>
+              <a class="link-btn" :href="chapterHref(b)" download title="下载 Markdown ZIP（整本或所选章节，含本地图）">⬇ ZIP</a>
+              <a class="link-btn muted" :href="`/api/books/${b.id}/export?format=raw`" download title="原始 OCR 合并版 ZIP">原</a>
+              <a class="link-btn purple" :href="`/api/books/${b.id}/export?format=obsidian`" download title="Obsidian 版 ZIP（自包含本地图）">📓 版</a>
               <button v-if="settings?.obsidian_vault_configured" class="link-btn purple"
                       :disabled="importingId === b.id" @click="importObsidian(b)"
                       title="导入 Obsidian（图片转 OSS 外链）">

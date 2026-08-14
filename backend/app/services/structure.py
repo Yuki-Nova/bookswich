@@ -118,23 +118,6 @@ def load_batches(book_dir: str | Path) -> list[dict]:
     return items
 
 
-def _norm(s: str) -> str:
-    """归一化：去空白，用于标题匹配。"""
-    return re.sub(r"\s+", "", s)
-
-
-def page_anchors(content_list: list | None) -> dict:
-    """从 content_list 提取 {归一化标题文本: 页码}（页码 1-based）。
-
-    标题元素为 type=text 且 text_level 为 1（章）或 2（节）。
-    """
-    anchors: dict[str, int] = {}
-    for it in content_list or []:
-        if it.get("type") == "text" and it.get("text_level") in (1, 2) and it.get("text"):
-            anchors[_norm(it["text"])] = int(it.get("page_idx", 0)) + 1
-    return anchors
-
-
 def _split_lines_with_tables(text: str) -> list[str]:
     """按行拆分，但 HTML 表格整体合并为一行（避免表格内容被误判标题）。"""
     lines: list[str] = []
@@ -530,7 +513,7 @@ def build_outline_report(structure: dict, book_name: str) -> str:
 
 # ── 入口 ──────────────────────────────────────────────
 
-def run(book_id: int = 1, book_title: str = "医药应用概率统计") -> dict:
+def run(book_id: int, book_title: str) -> dict:
     """对指定教材执行结构重建，落盘 structure.json + outline.md。"""
     md_dir = settings.md_dir / f"b{book_id}_{book_title}"
     batches = load_batches(md_dir)

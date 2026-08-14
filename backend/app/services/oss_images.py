@@ -21,6 +21,17 @@ logger = logging.getLogger(__name__)
 class OssImageUploader:
     """幂等上传器（同一 key 已存在则跳过）。"""
 
+    # 按扩展名给出正确 MIME（MinerU 输出主要是 jpg，偶有 png/webp）
+    _CONTENT_TYPES = {
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+        ".svg": "image/svg+xml",
+        ".jpeg": "image/jpeg",
+        ".jpg": "image/jpeg",
+    }
+
     def __init__(self) -> None:
         if not settings.oss_configured:
             raise RuntimeError(
@@ -32,20 +43,24 @@ class OssImageUploader:
             settings.oss_bucket,
         )
 
+    def _content_type(self, local_path: Path) -> str:
+        return self._CONTENT_TYPES.get(local_path.suffix.lower(), "image/jpeg")
+
     def upload(self, key: str, local_path: Path) -> str:
         """上传单张图片（幂等），返回公网 URL。"""
+        ct = self._content_type(local_path)
         try:
             self.bucket.head_object(key)
             logger.info("OSS 已存在，跳过: %s", key)
         except oss2.exceptions.NoSuchKey:
             with open(local_path, "rb") as f:
-                self.bucket.put_object(key, f, headers={"Content-Type": "image/jpeg"})
+                self.bucket.put_object(key, f, headers={"Content-Type": ct})
             logger.info("OSS 上传: %s", key)
         # key 中不可见字符/签名参数等其它 404 形态（NoSuchKey 是 NotFound 子类，
         # 这里再兜一层防止 SDK 版本差异抛 NotFound）
         except oss2.exceptions.NotFound:
             with open(local_path, "rb") as f:
-                self.bucket.put_object(key, f, headers={"Content-Type": "image/jpeg"})
+                self.bucket.put_object(key, f, headers={"Content-Type": ct})
             logger.info("OSS 上传(404 兜底): %s", key)
         return settings.oss_image_base + "/" + quote(key, safe="/")
 

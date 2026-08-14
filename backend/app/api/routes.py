@@ -39,6 +39,13 @@ def _safe_stem(name: str) -> str:
     return stem or "unnamed"
 
 
+def _safe_title(name: str) -> str:
+    """教材标题安全化：去路径分隔符与 Windows 非法字符（保留点号），防标题拼路径穿越。"""
+    base = name.replace("\\", "/").rsplit("/", 1)[-1]
+    t = re.sub(r'[<>:"/\\|?*]', "_", base).strip(" ._")
+    return t or "未命名"
+
+
 @router.get("/health")
 async def health():
     return {"status": "ok", "data_dir": str(settings.data_dir)}
@@ -58,23 +65,27 @@ class BookCreate(BaseModel):
 
 @router.post("/books")
 async def create_book(body: BookCreate):
-    """注册教材。raw_path 为服务器本地 PDF 路径。"""
+    """注册教材。raw_path 为服务器本地 PDF 路径（仅限 data/raw/ 内，防任意文件读取/穿越）。"""
     raw_path = ""
     if body.raw_path:
         src = Path(body.raw_path)
         if not src.exists():
             raise HTTPException(400, f"raw_path 不存在: {src}")
         settings.ensure_dirs()
+        # 仅允许注册 data/raw/ 内的文件（否则此端点可被用于读取服务器任意文件）
+        if not src.resolve().is_relative_to(settings.raw_dir.resolve()):
+            raise HTTPException(400, "raw_path 必须位于 data/raw/ 目录内")
         dest = settings.raw_dir / f"{_safe_stem(src.name)}{src.suffix}"
         if not dest.exists():
             shutil.copy2(src, dest)
         raw_path = str(dest)
 
+    title = _safe_title(body.title)
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO books (title, author, edition, publisher, page_count, raw_path) "
             "VALUES (?,?,?,?,?,?)",
-            (body.title, body.author, body.edition, body.publisher, body.page_count, raw_path),
+            (title, body.author, body.edition, body.publisher, body.page_count, raw_path),
         )
         book_id = cur.lastrowid
     return {"book_id": book_id}
@@ -303,7 +314,7 @@ async def start_parse(book_id: int):
 
 @router.get("/books/{book_id}/chapters")
 async def list_chapters(book_id: int):
-    """教材章节列表（结构重建产物）。"""
+    """教材章节列表（结构重建产物）。未重建的书返回空列表（前端对每本书都会调用，400 会造成控制台报错噪音）。"""
     from ..services import exporter
 
     with get_conn() as conn:
@@ -312,8 +323,9 @@ async def list_chapters(book_id: int):
         raise HTTPException(404, "book not found")
     try:
         titles = exporter.chapter_titles(book_id, row["title"])
-    except FileNotFoundError as exc:
-        raise HTTPException(400, str(exc))
+    except FileNotFoundError:
+        # 未跑结构重建：章节尚未生成，返回空列表（200）而非 400
+        return {"book_id": book_id, "chapters": []}
     return {"book_id": book_id, "chapters": [{"no": i + 1, "title": t} for i, t in enumerate(titles)]}
 
 
@@ -482,7 +494,7 @@ async def import_obsidian(book_id: int):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         for m in zf.infolist():
             dest = (target / m.filename).resolve()
-            if not str(dest).startswith(str(target_resolved)):
+            if not dest.is_relative_to(target_resolved):
                 raise HTTPException(400, f"非法路径: {m.filename}")
         zf.extractall(target)
         n_files = len(zf.infolist())
