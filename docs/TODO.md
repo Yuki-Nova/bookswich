@@ -678,3 +678,24 @@ https 页面 200 + 新 assets(index-fMHmIlzj.js)200
       激活 tab 金色，computed style 逐项核对）；空态 + 选中书详情（质检/对比/并排三 tab）截图正常；
       /api/chapters、compare、compare/chapter、as=markdown 全 200；**控制台 0 错误**
 - [x] 截图：export/shots/v3-empty.png、v3-detail-report.png、v3-detail-diff.png、v3-detail-sbs.png
+
+
+---
+
+## MinerU 式可折叠边栏 + 并排预览增强（2026-08-14 已执行完毕）
+
+**背景**：用户参照 MinerU 桌面端布局，要求「可折叠边栏」+「PDF/Markdown 预览对比栏」。
+
+### 改动
+- [x] **COLLAPSE-1 可折叠边栏**：App.vue 加 railCollapsed 状态 + 顶栏折叠按钮（汉堡/展开图标）；
+      折叠态 SidebarPanel 渲染图标条（📚教材库带计数徽标 / ⏳任务带解析中脉冲点 / ⚡额度），
+      点图标触发 expand 展开；rail 宽度 280px ↔ 52px 平滑过渡
+- [x] **COLLAPSE-2 并排预览增强**：SideBySideView 加「⧉ 复制 Markdown」按钮（clipboard + 已复制反馈）；
+      左右栏改全高视口（calc(100vh - 260px)，折叠边栏后 workspace 更宽，预览沉浸感更强）
+
+### 验证（2026-08-14）
+- [x] npm run build 通过（gzip 137.54KB）
+- [x] Playwright + Edge 实测：rail 宽度 280px → 52px 折叠生效、折叠态 3 图标渲染、
+      复制按钮存在、并排预览正常；控制台仅 1 条无害 404（book1 无 raw_path 的 PDF HEAD 探测，预期降级路径）
+- [x] 截图：export/shots/v4-rail-expanded.png、v4-rail-collapsed.png、v4-sbs.png、v4-sbs-collapsed.png
+- [x] 顺带清理：8000/5173 端口发现历史会话遗留的孤儿 uvicorn/vite 进程（kill 包装进程未杀子进程），已 Stop-Process 清空

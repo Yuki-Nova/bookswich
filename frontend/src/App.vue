@@ -10,6 +10,7 @@ const quota = ref(null)
 const settings = ref(null)
 const backendDown = ref(false)
 const selectedBook = ref(null)   // 当前在 workspace 打开的教材
+const railCollapsed = ref(false)  // 教材库 rail 是否折叠（MinerU 式可折叠边栏）
 
 async function refreshBooks() {
   try {
@@ -56,6 +57,16 @@ onMounted(() => { refreshBooks(); refreshQuota(); refreshSettings() })
     <!-- 顶部导航 -->
     <header class="nav">
       <div class="nav-inner">
+        <button class="nav-toggle" :title="railCollapsed ? '展开教材库' : '折叠教材库'"
+                @click="railCollapsed = !railCollapsed">
+          <svg v-if="railCollapsed" width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M7 4l5 5-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <svg v-else width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M2 4.5h14M2 9h14M2 13.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </button>
+
         <div class="brand">
           <span class="brand-mark">b</span>
           <span>bookswich</span>
@@ -89,10 +100,11 @@ onMounted(() => { refreshBooks(); refreshQuota(); refreshSettings() })
 
     <!-- 左 rail（教材库 + 任务 + 配额） / 右 workspace（上传空态或教材详情） -->
     <div class="layout">
-      <aside class="rail">
+      <aside class="rail" :class="{ collapsed: railCollapsed }">
         <SidebarPanel :books="books" :quota="quota" :settings="settings" :parse-task="parseTask"
-                      :selected-id="selectedBook?.id"
+                      :selected-id="selectedBook?.id" :collapsed="railCollapsed"
                       @select="selectedBook = $event"
+                      @expand="railCollapsed = false"
                       @changed="refreshBooks(); refreshQuota()" />
       </aside>
 

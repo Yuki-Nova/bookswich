@@ -35,6 +35,17 @@ const loading = ref(false)
 const error = ref('')
 const pdfError = ref(false)
 const pdfOk = ref(false)
+const copied = ref(false)
+
+// 复制当前章节 Markdown（MinerU 式「复制」按钮）
+async function copyMarkdown() {
+  if (!md.value) return
+  try {
+    await navigator.clipboard.writeText(md.value)
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 1500)
+  } catch { /* 剪贴板被拒（非 https / 权限）忽略 */ }
+}
 
 // 章节下拉切换 → 右栏加载 markdown
 watch(chapterNo, async (no) => {
@@ -123,6 +134,9 @@ function onPdfLoad() {
         <template v-else>PDF 起始页未知</template>
         <span v-if="!pdfError" class="d-add"> · 左 PDF / 右 Markdown</span>
       </span>
+      <button class="link-btn sbs-copy" :disabled="!md" @click="copyMarkdown">
+        {{ copied ? '✓ 已复制' : '⧉ 复制 Markdown' }}
+      </button>
     </div>
 
     <p v-if="loading" class="msg">⏳ 加载章节…</p>

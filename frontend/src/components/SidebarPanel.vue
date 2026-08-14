@@ -8,8 +8,9 @@ const props = defineProps({
   settings: Object,
   parseTask: Object,
   selectedId: Number,   // workspace 当前打开的教材（高亮）
+  collapsed: Boolean,   // 折叠态：只渲染图标条
 })
-const emit = defineEmits(['select', 'changed'])
+const emit = defineEmits(['select', 'changed', 'expand'])
 
 // 实时进度："2/13" → {pct, text}
 const parseInfo = computed(() => {
@@ -36,7 +37,23 @@ function startParse(b) {
 </script>
 
 <template>
-  <div class="rail-stack">
+  <!-- 折叠态：图标条 -->
+  <div v-if="collapsed" class="rail-stack rail-collapsed">
+    <button class="rail-icon" title="教材库（展开）" @click="emit('expand')">
+      📚
+      <span v-if="books.length" class="rail-badge">{{ books.length }}</span>
+    </button>
+    <button class="rail-icon" :title="busyBook ? `解析中：${busyBook.title}` : '解析任务（展开）'" @click="emit('expand')">
+      ⏳
+      <span v-if="busyBook" class="rail-dot"></span>
+    </button>
+    <button class="rail-icon" title="MinerU 额度（展开）" @click="emit('expand')">
+      ⚡
+    </button>
+  </div>
+
+  <!-- 展开态：三卡 -->
+  <div v-else class="rail-stack">
     <!-- 教材库 -->
     <section class="card rail-card">
       <h3>教材库 <span v-if="books.length" class="side-count">（{{ books.length }}）</span></h3>
