@@ -699,3 +699,29 @@ https 页面 200 + 新 assets(index-fMHmIlzj.js)200
       复制按钮存在、并排预览正常；控制台仅 1 条无害 404（book1 无 raw_path 的 PDF HEAD 探测，预期降级路径）
 - [x] 截图：export/shots/v4-rail-expanded.png、v4-rail-collapsed.png、v4-sbs.png、v4-sbs-collapsed.png
 - [x] 顺带清理：8000/5173 端口发现历史会话遗留的孤儿 uvicorn/vite 进程（kill 包装进程未杀子进程），已 Stop-Process 清空
+
+
+---
+
+## PDF 网页内嵌阅览器 + 全宽布局（2026-08-14 已执行完毕）
+
+**背景**：用户反馈 iframe 版并排预览触发 IDM 下载弹窗（`Content-Disposition: attachment` + 浏览器下载），
+且布局 `max-width` 居中两侧留白浪费屏幕；要求 MinerU 式「网页内嵌 PDF 阅览器 + 满屏布局」。
+
+### 改动
+- [x] **PDF-1 后端 book_pdf 改 inline**：FileResponse 去掉 filename（原 attachment 触发下载/IDM），
+      `content_disposition_type="inline"` → 浏览器/下载器不再弹下载
+- [x] **PDF-2 新增 PdfViewer.vue（pdf.js）**：fetch→arrayBuffer→pdfjs-dist canvas 逐页渲染（真网页内嵌，
+      所见即所得）；IntersectionObserver 懒加载（rootMargin 400px，只渲染可见页）；占位 aspect 取首页比例
+      保证未渲染时滚动高度准确；scrollToStart 定位章节起始页；pdfjs-dist 动态 import 按需加载（不拖累首屏）
+- [x] **PDF-3 SideBySideView**：iframe 替换为 PdfViewer（左 PDF canvas / 右 Markdown），删 HEAD 探测与
+      pdfOk/pdfError 逻辑（PdfViewer 自管 fetch 错误态）
+- [x] **LAYOUT-1 全宽布局**：`.layout`/`.nav-inner` 去掉 max-width 居中，改满屏（MinerU 式），
+      workspace 随窗口伸缩，折叠边栏后预览区更宽
+- [x] **DEP-1 npm audit fix**：nanoid（vite→postcss 传递依赖）高危 CVE 修复，0 漏洞
+
+### 验证（2026-08-14）
+- [x] npm run build 通过（主包 138.97KB gzip；pdf.js 独立 chunk 142.68KB gzip + worker 1.26MB 按需加载）
+- [x] Playwright + Edge 实测（生成 5 页测试 PDF 注册临时书）：PdfViewer 5 占位 + 2 canvas 渲染、
+      **0 下载事件**（无 IDM 弹窗）、0 控制台错误；测试后恢复 book8 raw_path、删临时书/测试 PDF
+- [x] 截图：export/shots/v5-pdf-viewer.png

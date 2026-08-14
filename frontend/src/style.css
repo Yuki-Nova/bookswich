@@ -100,8 +100,6 @@ a:hover { text-decoration: underline; }
 /* ── 布局骨架 ─────────────────────────────── */
 
 .layout {
-  max-width: var(--page-w);
-  margin: 0 auto;
   padding: 0 20px 72px;
   display: flex;
   align-items: flex-start;
@@ -187,8 +185,6 @@ a:hover { text-decoration: underline; }
 }
 
 .nav-inner {
-  max-width: var(--page-w);
-  margin: 0 auto;
   padding: 0 20px;
   height: 56px;
   display: flex;
@@ -687,6 +683,8 @@ a:hover { text-decoration: underline; }
   display: flex;
   flex-direction: column;
   background: var(--surface-1);
+  height: calc(100vh - 260px);
+  min-height: 480px;
 }
 
 .sbs-pane-label {
@@ -702,9 +700,32 @@ a:hover { text-decoration: underline; }
 
 .sbs-msg { padding: 12px; margin: 0; }
 
-.sbs-frame { width: 100%; height: calc(100vh - 260px); min-height: 480px; border: none; background: #1b1f27; }
+/* 网页内嵌 PDF 阅览器（pdf.js） */
+.pdf-viewer { flex: 1; min-height: 0; overflow: auto; padding: 12px; background: #1c2026; }
 
-.sbs-md { height: calc(100vh - 260px); min-height: 480px; overflow: auto; padding: 16px 20px; background: var(--surface-1); }
+.pdf-page {
+  position: relative;
+  margin: 0 auto 12px;
+  background: #fff;
+  border-radius: 2px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+  max-width: 100%;
+  overflow: hidden;
+}
+.pdf-page canvas { display: block; width: 100%; height: auto; }
+.pdf-page-no {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  background: rgba(17, 20, 26, 0.78);
+  color: #d8dce3;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.sbs-md { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px; background: var(--surface-1); }
 
 .sbs-copy { margin-left: auto; }
 
@@ -724,7 +745,7 @@ a:hover { text-decoration: underline; }
 
 @media (max-width: 860px) {
   .sbs-view { grid-template-columns: 1fr; }
-  .sbs-frame { height: 460px; }
+  .sbs-pane { height: 460px; }
 }
 
 /* ── 按钮 ─────────────────────────────────── */

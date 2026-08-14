@@ -347,7 +347,10 @@ async def book_media(book_id: int, file_path: str):
 
 @router.api_route("/books/{book_id}/pdf", methods=["GET", "HEAD"])
 async def book_pdf(book_id: int):
-    """返回原始 PDF（浏览器 iframe/embed 内嵌预览用，2026-08-11 新增）。HEAD 供前端探测可用性。"""
+    """返回原始 PDF（网页内嵌预览用）。inline 而非 attachment，浏览器/IDM 不再弹下载。
+
+    HEAD 供前端探测可用性。
+    """
     with get_conn() as conn:
         row = conn.execute("SELECT raw_path FROM books WHERE id=?", (book_id,)).fetchone()
     if not row:
@@ -358,7 +361,11 @@ async def book_pdf(book_id: int):
     pdf = Path(raw_path)
     if not pdf.exists() or pdf.suffix.lower() != ".pdf":
         raise HTTPException(404, "原始 PDF 文件不存在")
-    return FileResponse(pdf, media_type="application/pdf", filename=pdf.name)
+    return FileResponse(
+        pdf,
+        media_type="application/pdf",
+        content_disposition_type="inline",
+    )
 
 
 @router.get("/books/{book_id}/compare")

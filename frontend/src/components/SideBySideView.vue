@@ -1,10 +1,11 @@
 <script setup>
-// SideBySideView.vue — 并排预览：左原始 PDF（iframe 原生 viewer）+ 右 rebuilt Markdown 渲染
-// 章节切换联动：PDF 按章 page_range 起始页 #page=N 定位；右栏拉取 as=markdown 原文
+// SideBySideView.vue — 并排预览：左网页内嵌 PDF 阅览器（pdf.js）+ 右 rebuilt Markdown 渲染
+// 章节切换联动：PDF 按章 page_range 起始页定位；右栏拉取 as=markdown 原文
 import { ref, watch, computed } from 'vue'
 import { marked } from 'marked'
 import markedKatex from 'marked-katex-extension'
 import DOMPurify from 'dompurify'
+import PdfViewer from './PdfViewer.vue'
 import 'katex/dist/katex.min.css'
 
 // KaTeX 公式渲染：$...$ 行内 / $$...$$ 块级（坏公式不崩页面，原样展示）
@@ -33,8 +34,6 @@ const chapterNo = ref(0)
 const md = ref('')
 const loading = ref(false)
 const error = ref('')
-const pdfError = ref(false)
-const pdfOk = ref(false)
 const copied = ref(false)
 
 // 复制当前章节 Markdown（MinerU 式「复制」按钮）
@@ -77,8 +76,8 @@ const pdfPage = computed(() => {
   return m ? parseInt(m[1], 10) : 1
 })
 
-const pdfSrc = computed(() =>
-  props.bookId ? `/api/books/${props.bookId}/pdf#page=${pdfPage.value}` : ''
+const pdfUrl = computed(() =>
+  props.bookId ? `/api/books/${props.bookId}/pdf` : ''
 )
 
 // markdown 渲染：相对图片路径 → 后端 media 端点；URL 原样
@@ -99,28 +98,6 @@ const renderedHtml = computed(() => {
   const raw = marked.parse(normalizeInlineDisplay(md.value), { async: false })
   return DOMPurify.sanitize(raw)
 })
-
-// iframe 加载失败（无 raw_path / 文件缺失）→ 显示提示
-// 注意:iframe 对 HTTP 404 不触发 error 事件, 所以用 HEAD 探测 PDF 可用性
-watch(() => props.bookId, async (id) => {
-  if (!id) return
-  pdfOk.value = false
-  try {
-    const r = await fetch(`/api/books/${id}/pdf`, { method: 'HEAD' })
-    pdfOk.value = r.ok
-    pdfError.value = false
-  } catch {
-    pdfOk.value = false
-    pdfError.value = true
-  }
-}, { immediate: true })
-
-function onPdfError() {
-  pdfError.value = true
-}
-function onPdfLoad() {
-  pdfError.value = false
-}
 </script>
 
 <template>
@@ -132,7 +109,7 @@ function onPdfLoad() {
       <span v-if="chapterNo" class="diff-meta">
         <template v-if="pdfPage > 1">PDF 第 {{ pdfPage }} 页起</template>
         <template v-else>PDF 起始页未知</template>
-        <span v-if="!pdfError" class="d-add"> · 左 PDF / 右 Markdown</span>
+        <span class="d-add"> · 左 PDF / 右 Markdown</span>
       </span>
       <button class="link-btn sbs-copy" :disabled="!md" @click="copyMarkdown">
         {{ copied ? '✓ 已复制' : '⧉ 复制 Markdown' }}
@@ -144,11 +121,10 @@ function onPdfLoad() {
     <p v-else-if="!chapterNo" class="msg">无章节可预览</p>
 
     <div v-else class="sbs-view">
-      <!-- 左栏：原始 PDF -->
+      <!-- 左栏：网页内嵌 PDF 阅览器 -->
       <div class="sbs-pane sbs-pdf">
         <div class="sbs-pane-label">原始 PDF</div>
-        <div v-if="pdfError || !pdfOk" class="msg err sbs-msg">无法加载原始 PDF（无 raw_path 或文件缺失）</div>
-        <iframe v-else :src="pdfSrc" class="sbs-frame" @error="onPdfError" @load="onPdfLoad"></iframe>
+        <PdfViewer :pdf-url="pdfUrl" :start-page="pdfPage" />
       </div>
       <!-- 右栏：重建后 Markdown 渲染 -->
       <div class="sbs-pane sbs-md">
