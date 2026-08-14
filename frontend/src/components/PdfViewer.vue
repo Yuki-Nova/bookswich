@@ -95,10 +95,20 @@ async function load() {
   pdfDoc = null
   try {
     const lib = await ensurePdfjs()
-    const resp = await fetch(props.pdfUrl)
-    if (!resp.ok) throw new Error(`PDF 加载失败（HTTP ${resp.status}）`)
-    const data = await resp.arrayBuffer()
-    pdfDoc = await lib.getDocument({ data }).promise
+    // 先 HEAD 取 Content-Length 传给 pdf.js，让它从第一秒就走 HTTP Range 分片流式，
+    // 否则 getDocument({url}) 在不知道长度时会先做一次整本全量下载（68MB 那次就源于此）
+    const opts = { url: props.pdfUrl }
+    try {
+      const h = await fetch(props.pdfUrl, { method: 'HEAD' })
+      const cl = parseInt(h.headers.get('content-length') || '0', 10)
+      if (cl > 0) {
+        opts.length = cl
+        opts.rangeChunkSize = 65536
+      }
+    } catch { /* HEAD 失败则退回无 length 模式 */ }
+    // 注意：不要设 disableStream=true（那会禁用分片加载、反而全量下载）。
+    // 保持 streaming 默认开启 + rangeChunkSize 即可让 pdf.js 走 Range 分片。
+    pdfDoc = await lib.getDocument(opts).promise
     totalPages.value = pdfDoc.numPages
 
     // 取第一页比例作占位 aspect（教材页尺寸基本一致 → 未渲染时滚动高度也准确）
