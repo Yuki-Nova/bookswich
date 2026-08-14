@@ -725,3 +725,32 @@ https 页面 200 + 新 assets(index-fMHmIlzj.js)200
 - [x] Playwright + Edge 实测（生成 5 页测试 PDF 注册临时书）：PdfViewer 5 占位 + 2 canvas 渲染、
       **0 下载事件**（无 IDM 弹窗）、0 控制台错误；测试后恢复 book8 raw_path、删临时书/测试 PDF
 - [x] 截图：export/shots/v5-pdf-viewer.png
+
+
+---
+
+## 生产部署：暗色工作台 v3 + PDF 阅览器 + 全宽布局上线（2026-08-14 已执行完毕）
+
+**部署对象**：`2fa62f7`（暗色工作台 v3 + 可折叠边栏 + PdfViewer + 全宽 + 后端安全修复批次）。
+
+### 部署前环境检查（均正常）
+- SSH 连通 ✓；bookswich.service / nginx 均 active；磁盘 40G 用 27%
+- 后端 health ok；公网 https 首页/API 200；服务器 Starlette 1.4.1 / FastAPI 0.141.1（与本地一致，无需 pip 升级）
+- 服务器旧代码 grep `content_disposition_type`/`recover_stale_parsing` 均为 0（待更新）
+
+### 部署流程（paramiko，实测）
+1. 本地 tarfile 打包：backend（arcname `app/...`+requirements.txt，排除 __pycache__/.pyc，29KB/13 文件）
+   + dist（arcname `dist/...`，1.5MB/66 文件含 pdf.js 三件套）
+2. SFTP 上传 → `cp -r backend/app backend/app.bak-<TS>` + `cp -r dist dist.bak-<TS>` 备份
+3. `tar xzf backend.tgz -C backend/` + `tar xzf dist.tgz -C .` → `systemctl restart bookswich`
+4. 校验落地：`grep -c content_disposition_type routes.py`=1、`recover_stale_parsing main.py`=2
+5. 清理：旧 dist 覆盖解压会残留旧 hash 资源 → `rm -rf dist && tar xzf dist.tgz -C .` 重解压干净；删上传 tgz（保留 .bak）
+
+### 部署后验证（全绿）
+- [x] /api/health ok；chapters / compare / compare/chapter（id=6）全 200
+- [x] /api/books/6/pdf 仅 `content-type: application/pdf`，无 attachment（内嵌预览生效）
+- [x] https 首页 = 新 index.html（新标题 + favicon.svg）；api health ok
+- [x] dist 66 文件齐全；index-BzwYW97a.js / pdf.worker.min-*.mjs / pdf-C1gUo6dv.js / favicon.svg 经 https 全 200
+- [x] 顺带：.gitignore 补 `*.tgz`（本地打包产物此前未被 ignore）
+
+**回滚**：服务器 `/www/wwwroot/bookswich/backend/app.bak-20260814_190057`、`dist.bak-20260814_190057` 保留。
