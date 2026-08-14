@@ -132,12 +132,14 @@ function onPdfLoad() {
     <div v-else class="sbs-view">
       <!-- 左栏：原始 PDF -->
       <div class="sbs-pane sbs-pdf">
-        <div v-if="pdfError || !pdfOk" class="msg err">无法加载原始 PDF（无 raw_path 或文件缺失）</div>
+        <div class="sbs-pane-label">原始 PDF</div>
+        <div v-if="pdfError || !pdfOk" class="msg err sbs-msg">无法加载原始 PDF（无 raw_path 或文件缺失）</div>
         <iframe v-else :src="pdfSrc" class="sbs-frame" @error="onPdfError" @load="onPdfLoad"></iframe>
       </div>
       <!-- 右栏：重建后 Markdown 渲染 -->
       <div class="sbs-pane sbs-md">
-        <div v-if="!md" class="msg">该章节无内容</div>
+        <div class="sbs-pane-label">重建 Markdown</div>
+        <div v-if="!md" class="msg sbs-msg">该章节无内容</div>
         <article v-else class="md-body" v-html="renderedHtml"></article>
       </div>
     </div>

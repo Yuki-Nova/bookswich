@@ -646,3 +646,35 @@ https 页面 200 + 新 assets(index-fMHmIlzj.js)200
 - [x] pytest 66/66 全绿（后端改动未破坏既有测试）
 - [x] 前端 npm run build 通过（gzip 136.99KB，与基线一致）
 - [x] 真实浏览器（Playwright + headless Edge 1440×960）截图：首页 3 本书渲染、质检报告正常，/api/books、quota、settings、chapters、compare 全 200；截图 export/shots/v2-home.png、v2-compare.png
+
+
+---
+
+## 前端全新重构：暗色工作台设计语言 v3（2026-08-14 已执行完毕）
+
+**背景**：用户对前两版浅色风格仍不满意，要求「不要按原布局修，全新重构 + 统一设计语言 + 独特风格」。
+
+### 设计系统「暗色工作台」
+- [x] **DS-1 视觉**：深炭画布 #0b0d11 + 4 层表面（surface-1~4）+ 1px 发丝线 + **金色签名色 #e5b14f**
+      （契合「教材/纸张/学术」气质，区别于千篇一律的蓝/紫 SaaS 风）；金色渐变品牌 logo
+- [x] **DS-2 数据等宽**：页码/批次/进度/状态码统一 Geist Mono + tabular-nums，强化「解析工作台」工程感
+- [x] **DS-3 状态语言**：状态点带光晕（解析中脉冲动画）+ 彩色边框 pill + 焦点环 + 细滚动条 +
+      顶部 radial 渐变氛围光 + 卡片入场动画
+
+### 信息架构重构（从「侧栏塞一切」→「选书为核心」）
+- [x] **IA-1 App.vue**：顶栏（品牌 + 全局状态徽标 + 解析中进度 + 「上传 PDF」CTA）+
+      左 rail（教材库/解析任务/额度三卡）+ 右 workspace（上传空态 或 教材详情）
+- [x] **IA-2 SidebarPanel → 教材库 rail**：书列表只做「选书」（状态点 + 标题 + 元信息 + 快捷解析），
+      点选打开 workspace；操作类按钮（下载/导入/删除）从侧栏移出
+- [x] **IA-3 新建 BookDetail.vue**：选中教材的 workspace——标题/状态/进度 + 导出工具栏
+      （章节下拉 + 下载 ZIP/原/Obsidian/导入/删除）+ 质检/对比/并排 tab；章节下拉自取 /chapters
+- [x] **IA-4 UploadPanel → 上传空态 hero**：大拖拽区 + 步骤说明，不再与教材列表挤在同一屏
+- [x] **IA-5 并排预览**：左右栏加「原始 PDF / 重建 Markdown」标签头；KaTeX 暗色继承浅色文字
+- [x] **IA-6 favicon**：原 /vite.svg 文件缺失导致 404，改为 public/favicon.svg（金色 b 标记）
+
+### 验证（2026-08-14）
+- [x] npm run build 通过（gzip 136.95KB）
+- [x] Playwright + Edge 实测：暗色主题完整生效（body #0b0d11 / 卡片 #11141a / 金主色 / 渐变 logo /
+      激活 tab 金色，computed style 逐项核对）；空态 + 选中书详情（质检/对比/并排三 tab）截图正常；
+      /api/chapters、compare、compare/chapter、as=markdown 全 200；**控制台 0 错误**
+- [x] 截图：export/shots/v3-empty.png、v3-detail-report.png、v3-detail-diff.png、v3-detail-sbs.png
