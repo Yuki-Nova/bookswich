@@ -497,6 +497,12 @@ async def import_obsidian(book_id: int):
     target = settings.obsidian_vault_dir / settings.obsidian_sub_dir
     target.mkdir(parents=True, exist_ok=True)
     target_resolved = target.resolve()
+    # 幂等导入：zip 顶层是 <书名>/，同名旧目录不会被覆盖删除（旧结构章节残留污染 vault），
+    # 先整体清理该书目录再解压（2026-08-17 修复：b11 新旧 30/10 章并存即此缺陷）
+    book_folder = exporter._sanitize_filename(row["title"])
+    stale_dir = target / book_folder
+    if stale_dir.exists():
+        shutil.rmtree(stale_dir)
     n_files = 0
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         for m in zf.infolist():
