@@ -962,3 +962,26 @@ https 页面 200 + 新 assets(index-fMHmIlzj.js)200
 - b1 概率统计：11 章不变，章节 page_range 从批区间升级为真实页码（p4/p35/p60…）
 - pytest 95 全绿（新增 test_toc_driven.py 7 用例）
 - 导出链路（rebuilt/obsidian zip）三本全部正常
+
+
+### 生产修复与 vault 全量体检（2026-08-17，webdav 403 → 表格公式净化 → vault 重导）
+
+**1. webdav 403（nginx）**：webdav.yukinova.top 的 `limit_except PROPFIND PUT DELETE MKCOL COPY MOVE OPTIONS { deny all; }`
+漏了 GET/HEAD → 浏览器打开 403 + Obsidian 客户端下载文件（GET）403。修复：白名单加 `GET HEAD`。
+⚠ 宝塔环境 `systemctl reload nginx` 静默失败，必须 `/www/server/nginx/sbin/nginx -s reload`。
+
+**2. import-obsidian 幂等（f41228e）**：zip 解压只覆盖同名文件，旧结构章节目录残留 → 重导后新旧结构并存
+（b11 药事法规 30 章旧 + 10 章新，编号冲突）。修复：解压前 `shutil.rmtree(target/<书名>)`。
+
+**3. 表格内公式净化链（2db369a + 4df89b5）**：
+- `format_table_md` 单元格 = 实体解码 → 公式间双空格压平 → `normalize_math` → 竖线转义
+  （MinerU 用 `$  $` 连接相邻公式，Typora 对第二个公式前导空格定界符识别不稳）
+- 压平逻辑提升到 `normalize_math` 本身（`(?<!\$)\$\s{2,}\$(?!\$)`，排除 `$$` 块级），
+  MD 转换与 HTML 保留两条路径统一受益（西方经济学 rowspan 表格实测修复）
+
+**4. vault 清理与重导**：删「扩展教材」旧版遗留（分析化学试题精解/药物分析化学，全 HTML 表格旧产物）；
+服务器 5 本重导 + 本地 b1 概率统计 oss 导出上传替换（服务器无其 books 记录）。
+**最终体检（配对判定）**：6 本全部 OK——章节数=总览链接、MD 表格行正常、公式内侧空格 0、双空格 0。
+
+**5. 探测方法论沉淀**：空格定界符统计须用配对判定（MATH_RE 提取公式内容检查首尾空格）——
+`$  $`/`$ |`（表格竖线分隔符）/公式后文本空格均为合法，正则直接扫 `\$ \S` 会大量误报。
