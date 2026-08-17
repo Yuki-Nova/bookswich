@@ -1,21 +1,39 @@
-# bookswich · 教材 PDF 解析下载工具
+# bookswich · 教材 PDF → 结构化 Markdown
 
-把教材 PDF（含纯扫描版）变成**结构清晰、格式修正过的 Markdown**：上传 → 自动解析 → 网页下载，供 Obsidian / Typora 等工具使用。
+把教材 PDF（含读秀/超星纯扫描版）变成**结构准确、格式修正过的 Markdown**：上传 → MinerU 云解析 → 规则法+目录驱动结构重建 → 下载（整本/单章/Obsidian 版），供 Obsidian / Typora 使用。
 
-## 功能特性
+> 2026-08-06 起已去 RAG 化：本项目只做「解析 + 格式修正 + 下载」，知识库由 **Obsidian + Hermes** 管理。
 
-- 任意 PDF 教材，上传后自动分批解析（MinerU OCR，公式转 LaTeX、表格转 HTML）
-- 不信任 OCR 的标题推断，按教材编号体系（章→节→小节）重新打标，章节结构准确
-- 按章拆分（每章 30~370KB 秒开，性能友好）+ MOC 总览页（[[双链]] 导航）；图片转 OSS 外链（vault 纯文本，多端同步轻量）；WebDAV 同步方案下导入即同步（无需下载）
-- 提供整本 / 单章 / 原始 OCR / Obsidian 版（zip 包），一键导入obsidian选项，对Typora/Obsidian格式 友好（公式规范化、无超长行）
-- **表格智能转换（2026-08-10）**：6 道质量门禁（闭合配对/无合并单元格/无游离文本/行列规整/2~8列/2~20行/单格≤300字符）通过 → HTML 表格转 Markdown 表格（表格内公式可渲染），未通过 → 保留 HTML 原样（格式永远正确）；实测 349 表 → 176 转 + 173 保，转换表列零错乱
-- 实时显示MinerU 免费额度（优先 2 解析每日 1000 页；每日总限 5000 份文件，一份 PDF 无论页数均按 1 计），解析进度可视化
-- 前端重设计（sticky 导航 + 拖拽上传 + 教材卡片列表 + 状态徽标）
+## 核心能力
+
+### 结构重建（规则法 + 目录驱动）
+- **不信任 MinerU 的 `#` 标题推断**：全部清除后按教材编号体系重新打标（第x章 → 第x节/x.y → 一、 → （一））
+- **目录驱动（P0-5，2026-08-16）**：从「## 目录」锚点提取章节条目（页码 OCR 丢失容忍），
+  目录区域整段跳过 + 正文「第x章」必须命中目录白名单并按目录顺序锚定——目录残渣、正文引用的法规条文、
+  附录条文等伪章全部被过滤（实测 b11 药事法 30 章误判 → 10 真章）
+- 目录有页码时章节 `page_range` 用真实页码（p121）；hash 风格/无目录教材自动回退旧规则
+
+### 表格智能转换（6 道门禁 + 单元格净化链）
+- **6 道质量门禁**：闭合配对 / 无 colspan·rowspan / 无游离文本 / 行列规整 / 2~8 列 / 2~20 行 / 单格 ≤300 字符
+- 通过 → HTML 表格转 Markdown 表格（**表格内公式可渲染**）；未通过 → 保留 HTML 原样（格式永远正确）
+- **单元格净化链（2026-08-17）**：实体解码 → 公式间双空格压平（`$A$  $B$`→`$A$ $B$`）→ 定界符净化 → 竖线转义
+  （公式内 `|`→`\vert`，公式外 `|`→`\|`，条件概率 P(A|B) 不切断表格列）
+- 实测 b1 概率统计：349 表 → 176 转（列零错乱）+ 173 保
+
+### 导出深度清洗（2026-08-16 借鉴 mineru-tianshu）
+- 双层 HTML 反转义（`&amp;gt;`→`>`）+ 删 `<del>` 幻觉标签 + 空行折叠
+- `<img>` 标签图片引用归一化为 Markdown 语法，打包/统计链路 IMG_RE 双语法兼容
+- 表格内容绝不参与清洗（用户决策：MinerU 的表格零改动）
+
+### 图片与分发
+- 图片随解析落盘，导出 zip 只打包实际引用（md + images/ 同级，解压即 Obsidian/Typora 可读）
+- `images=oss`：图片传阿里云 OSS（hash 幂等），md 引用改公网 URL，**vault 只落文本**（多端同步轻量）
+- Obsidian 版：按章拆分 + `00_总览.md` MOC（[[双链]] 导航）+ 无章节教材「全文」兜底
+- **import-obsidian 幂等**：解压前清理同名旧目录（防新旧结构并存污染 vault）
 
 ## 快速开始
 
 ### 一键启动（推荐）
-
 ```powershell
 .\start.ps1            # 启动前后端并打开浏览器
 .\start.ps1 -Restart   # 先停旧服务再启动
@@ -23,86 +41,95 @@
 ```
 
 ### 环境要求
-
 - Python 3.10+ / Node.js 18+
 - MinerU 云 API Key（[获取](https://mineru.net)）
 
-### 安装与启动
-
+### 手动启动
 ```powershell
-# 1. 后端
-cd backend
-uv venv .venv --python python          # 创建虚拟环境
-uv pip install --python .venv\Scripts\python.exe -r requirements.txt   # 安装依赖（慢可加 --index-url https://pypi.tuna.tsinghua.edu.cn/simple）
-Copy-Item .env.example .env            # 填入 MINERU_API_KEY
+# 后端（backend/ 目录）
+uv venv .venv --python python
+uv pip install --python .venv\Scripts\python.exe -r requirements.txt
+Copy-Item .env.example .env        # 填 MINERU_API_KEY（可选 OSS/Obsidian 配置）
 .venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
-# 2. 前端（另开终端）
-cd frontend
-npm install                            # 慢可加 --registry=https://registry.npmmirror.com
-npm run dev                            # 打开 http://localhost:5173
+# 前端（frontend/ 目录，另开终端）
+npm install                          # 慢可加 --registry=https://registry.npmmirror.com
+npm run dev                          # http://localhost:5173
 ```
 
 ### 使用流程
+1. **上传** PDF → 自动检测页数 → 开始解析（分批 25 页，进度条 + 配额显示）
+2. 解析完成后**自动结构重建**（目录驱动，秒级）
+3. **下载**：整本/单章/原始版 zip（`书名.md` + `images/`，解压即用）
+4. **导入 Obsidian**（推荐，WebDAV 同步方案）：配置 `OBSIDIAN_VAULT_DIR` 后网页点「导入 Obsidian」→ 写入 vault 教材目录，Obsidian Remotely Save 自动同步；图片转 OSS 外链，vault 只存文本
 
-1. **上传**：选择 PDF → 上传 → 自动检测页数 → 开始解析（进度条 + 配额显示）
-2. 解析完成后自动结构重建（约几分钟，369 页实测 15~20 分钟）
-3. **下载**：教材列表点"下载 ZIP"，解压得到 `书名.md` + `images/` 文件夹，**整个文件夹**放进 Obsidian vault（md 与 images/ 须同目录）即可显示图片
-4. **导入 Obsidian**（推荐，WebDAV 同步方案）：配置 `OBSIDIAN_VAULT_DIR` 后网页点「导入 Obsidian」——
-   - **服务器部署**：导入直接写入 WebDAV 同步目录（如 `/srv/obsidian-vault/教材/`），Obsidian Remotely Save 自动同步，**无需下载**
-   - **本地部署**：导入写入本地 vault 路径（如 `/path/to/vault/教材/`）
-   - 图片全部转 OSS 外链，vault 只存文本（多端同步体积最小）
+## API 一览（prefix /api）
+
+| 接口 | 说明 |
+|------|------|
+| `POST /books/upload` | multipart 上传 PDF（200MB 上限，PyMuPDF 自动检测页数） |
+| `POST /books/{id}/parse` | 后台分批解析（进度轮询 GET /books/{id}） |
+| `GET /books/{id}/chapters` | 章节列表（结构重建产物） |
+| `GET /books/{id}/compare` | 解析质检报告（表格门禁原因分布/图片缺失/警告） |
+| `GET /books/{id}/compare/chapter/{n}?as=diff\|markdown` | 按章 raw vs rebuilt 行级 diff |
+| `GET /books/{id}/export?format=rebuilt\|raw\|obsidian&chapter=N&images=local\|oss` | 导出 ZIP |
+| `POST /books/{id}/import-obsidian` | 按章导入 vault（幂等，OSS 外链） |
+| `GET /quota` | MinerU 配额（页数 + 文件数双维度） |
 
 ## 技术栈
 
 | 环节 | 选型 |
 |------|------|
-| 后端 | Python FastAPI |
-| 前端 | Vue 3 + Vite + KaTeX |
-| 解析 | MinerU 云 API（分批 25 页，落盘缓存） |
-| 存储 | SQLite（仅 books 教材元数据） |
+| 后端 | Python FastAPI（uvicorn，127.0.0.1:8000） |
+| 前端 | Vue 3 + Vite + KaTeX（暗色工作台风格） |
+| 解析 | MinerU 云 API（分批 25 页，落盘缓存 + 图片落盘 + 配额记账） |
+| 存储 | SQLite（data/kb.db，仅 books 元数据） |
 
 ## 项目结构
 
 ```
 bookswich/
-├── backend/            # FastAPI 后端
+├── backend/
 │   ├── app/
-│   │   ├── api/routes.py       # REST 接口（books/upload/parse/chapters/export/quota）
-│   │   └── services/           # mineru_client / structure / exporter
-│   └── tests/                  # pytest 测试（47 用例：表格门禁/exporter/结构/配额）
-├── frontend/           # Vue 3 前端（上传 + 下载）
-├── data/               # 解析产物（raw/md/build/kb.db/quota.json）
-├── export/             # 已导出的 Markdown 文件
-└── docs/
-    ├── TODO.md         # 项目方案与里程碑
-    └── TECH.md         # 技术文档（架构/流程/踩坑记录）
+│   │   ├── main.py              # 入口：CORS + 可选 API_TOKEN 鉴权 + lifespan
+│   │   ├── api/routes.py        # REST 接口
+│   │   └── services/
+│   │       ├── mineru_client.py # 分批解析 + 缓存完整性 + 配额
+│   │       ├── structure.py     # 规则法+目录驱动重建（核心）
+│   │       ├── exporter.py      # 导出 + 表格门禁/净化链 + 深度清洗
+│   │       ├── compare.py       # 质检报告 + 按章 diff
+│   │       └── oss_images.py    # OSS 图片上传（幂等）
+│   └── tests/                   # pytest 97 用例
+├── frontend/src/                # Vue 3 单页（上传/进度/下载/对比）
+├── data/                        # raw/ + md/<book>/ + build/<book>/ + kb.db + quota.json
+├── export/                      # 已导出 Markdown
+└── docs/                        # TODO.md（方案/里程碑）+ TECH.md（技术文档）
 ```
 
 ## 测试
 
 ```powershell
 cd backend
-.venv\Scripts\python.exe -m pytest    # 47 用例全绿
+.venv\Scripts\python.exe -m pytest    # 97 用例全绿
 ```
 
-## 文档
+## 生产部署（阿里云 ECS）
 
-- [技术文档 docs/TECH.md](docs/TECH.md) —— 架构、核心流程、API、踩坑记录
-- [方案与里程碑 docs/TODO.md](docs/TODO.md) —— 规划、进度、风险对策
+- 后端：systemd `bookswich.service`，uvicorn 127.0.0.1:8001（nginx 反代 bookswich.yukinova.top）
+- 前端：`frontend/dist` 由 nginx 托管；WebDAV vault：wsgidav 8081（webdav.yukinova.top，Obsidian 同步）
+- 部署流程见 skill `bookswich-deploy`（paramiko 打包上传 → 备份 → 解压 → 重启 → 验证）
 
 ## 已知限制
 
 - 极少数 OCR 截断的残缺公式无法自动修复（导出后 Typora 显示为原文）
-- 精确页码被目录页污染（分批区间页码可靠，精确页码待修）
-- MinerU 偶发缺个别图片（导出 zip 会跳过该引用，其余图片正常）
+- MinerU 偶发缺个别图片（导出 zip 跳过该引用，其余图片正常）
+- 保留 HTML 的表格（合并单元格等）内公式渲染取决于渲染器对 HTML 内 inline math 的支持
 - 知识库管理已移交 Obsidian（本项目不再提供问答）
-- 无章节结构的文件（论文/单篇资料）导入 Obsidian 时整本合并为「全文」章节（2026-08-11 起支持）
 
 ## 未来规划
 
-- **Obsidian 教材导入插件（P2 远期）**：在 Obsidian 内直接「导入 PDF → 解析 → 生成 vault 笔记」，解析引擎仍走 bookswich 后端（详见 docs/TODO.md OBP-1~OBP-6）
+- **Obsidian 教材导入插件（P2 远期）**：在 Obsidian 内直接「导入 PDF → 解析 → 生成 vault 笔记」（详见 docs/TODO.md）
 
 ---
 
-> 测试样本：《医药应用概率统计》第 3 版，369 页纯扫描版，已完整解析
+> 测试样本：《医药应用概率统计》第 3 版（369 页纯扫描版）、《工业药剂学》等 6 本教材已完整解析并导入 vault
