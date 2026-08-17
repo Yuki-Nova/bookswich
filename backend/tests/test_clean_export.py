@@ -159,3 +159,24 @@ def test_format_table_md_unescapes_cells():
     assert "&gt;" not in out
     assert "a & b" in out
     assert "&amp;" not in out
+
+
+def test_format_table_md_normalizes_adjacent_math():
+    """表格内并列公式定界符净化：$...$  $...$ → $...$ $...$（Typora 识别）。
+
+    MinerU 用 `$  $`（结束$ + 双空格 + 开始$）连接相邻公式，Typora 不识别
+    第二个公式的前导空格定界符 → 表格内并列公式第二个渲染失败。
+    format_table_md 需先压平公式间双空格，再对单元格做定界符净化。
+    """
+    from app.services.exporter import format_table_md
+
+    tbl = (
+        "<table><tr><td>条件</td><td> $P(AB)=P(A)P(B)$  $A_1,A_2$ 相互独立</td></tr>"
+        "<tr><td>值</td><td>均值 $ \\overline{x} $ </td></tr></table>"
+    )
+    out = format_table_md(tbl)
+    # 公式间双空格压成单空格（两个独立公式，Typora 可识别）
+    assert "$P(AB)=P(A)P(B)$ $A_1,A_2$" in out
+    # 单公式内侧空格净化
+    assert "均值 $\\overline{x}$" in out
+    assert "$ \\overline{x} $" not in out

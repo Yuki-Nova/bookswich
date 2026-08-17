@@ -129,7 +129,7 @@ def format_table_md(table_html: str) -> str:
     1. `<eq>...</eq>` → `$...$`（html.unescape 解码 `&lt;`/`&gt;` 实体，
        否则 LaTeX 把 `&` 当列分隔符报 misplace &）
     2. 单元格竖线转义：公式内 `|` → `\vert `（LaTeX 数学模式语义正确），
-       公式外 `|` → `\|`（Markdown 转义）——否则条件概率 P(A|B) 切断表格列
+       公式外 `|` → `\\|`（Markdown 转义）——否则条件概率 P(A|B) 切断表格列
     3. `<tr>/<td>` → `| cell | cell |` + `| --- |` 分隔行；
        单元格文本同时做 HTML 实体解码（补齐 <eq> 之外的 &gt;/&lt;/&amp; 残留）
     """
@@ -154,12 +154,17 @@ def format_table_md(table_html: str) -> str:
                 out.append(part.replace("|", r"\|"))
         return "".join(out)
 
-    # 3. 行/单元格 → Markdown（单元格文本同样做实体解码）
+    # 3. 行/单元格 → Markdown（单元格文本：实体解码 → 公式间双空格压平 →
+    #    定界符净化 → 竖线转义）
     rows = re.findall(r"<tr>(.*?)</tr>", table_html, re.S)
     md_rows: list[str] = []
     for row in rows:
         cells = [
-            _escape_pipes(html_mod.unescape(c.strip().replace("\n", " ")))
+            _escape_pipes(
+                normalize_math(
+                    re.sub(r"\$\s{2,}\$", "$ $", html_mod.unescape(c.strip().replace("\n", " ")))
+                )
+            )
             for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)
         ]
         if cells:
