@@ -754,3 +754,211 @@ https 页面 200 + 新 assets(index-fMHmIlzj.js)200
 - [x] 顺带：.gitignore 补 `*.tgz`（本地打包产物此前未被 ignore）
 
 **回滚**：服务器 `/www/wwwroot/bookswich/backend/app.bak-20260814_190057`、`dist.bak-20260814_190057` 保留。
+
+
+
+---
+
+## 改造任务规划：结构重建质量 + 审核工作台 + 工程化短板（2026-08-15 规划，待批准执行）
+
+> 背景：结构重建产物章节树乱、目录行被错误分节进正文；网页端预览对比体验差；另有工程化短板（任务管理/导出降级/测试自包含等）。
+> 执行顺序：P0-1 → P0-2 → P0-4 → P0-3 → P1-1~P1-4 → P2。每个 P0 独立完成、独立验证。
+
+### 现状根因
+
+**结构树乱 + 目录混入正文**
+- A. `RE_TOC_LINE` 依赖点线 `…`，MinerU OCR 点线识别不稳，漏拦目录行（structure.py）
+- B. 目录区检测只认 `line == "目录"` / `"目 录"`，OCR 变体多，漏检后整页目录进入正文（structure.py `_extract_toc_titles`）
+- C. 目录行漏拦后 `第x章 ...` / `x.y` 被当章/节标题 → 目录切进正文（structure.py `classify_heading`）
+- D. `一、` / `（一）` / `x.y` 识别不要求行首 `#`，正文编号行易误判（structure.py）
+- E. `sec_kind` 层级状态机脆弱，不规则教材易错乱（structure.py `rebuild`）
+- F. `structure.json` 的 `children` 是扁平列表不是真树，`_node_to_md` 递归的 children 从未被填充（structure.py / exporter.py）
+- G. 未利用 content_list 的 page_idx/text_level 做弱信号校验（structure.py `load_batches`）
+- H. 节编号不连续只警告不修正，无目录白名单覆盖度检查（structure.py `check_section_continuity`）
+
+**预览对比体验差**
+- I. raw 侧批区间粗对齐（25 页粒度），diff 混入相邻章内容（compare.py `_chapter_raw_text`）
+- J. `difflib.SequenceMatcher` 万行级性能差，大章卡（compare.py `build_chapter_diff`）
+- K. eq 块只显示“… N 行相同 …”，无上下文（ChapterDiff.vue）
+- L. PDF 与 Markdown 无联动，PDF 全书占位 DOM 重，定位按批区间不准（PdfViewer.vue / SideBySideView.vue）
+- M. 三个 tab 定位不清：用户需要的是“快速审核每章重建对不对”，不是行级 diff（ComparePanel.vue）
+
+### P0-1 目录页识别与目录行过滤重构（核心痛点 1）
+
+**目标**：目录页内容 100% 不进入章节树，目录行提取为章节标题白名单。
+
+- [ ] `structure.py` 新增 `_detect_toc_region(batches)`：目录标题归一化识别（`目录`/`目 录`/`目  录`/`contents`）；目录区结束 = 遇到第一个正文章标题
+- [ ] 重写 `_extract_toc_titles`：目录行 = 行首章/节编号 + 行尾页码（阿拉伯/括号），**点线可有可无**；支持中文数字与阿拉伯数字章/节；同一目录区连续命中 ≥3 行才确认目录页
+- [ ] 新增 `_is_toc_line(line)` 替代 `RE_TOC_LINE`：行首编号 + 行尾页码 + 标题短于 40 字
+- [ ] 目录页整页降权：某批次目录行占比 >50%，该批次只参与目录提取，不参与标题识别
+- [ ] 旧 `RE_TOC_LINE` 保留兼容，新逻辑稳定后删除
+
+**验收**：b1 回归目录页不再产生任何章/节标题；新增测试覆盖无点线目录行、带 # 目录标题、目录跨批、阿拉伯数字目录行；现有 test_structure_arabic.py 全绿。
+
+### P0-2 标题识别收紧 + 结构树真树化（核心痛点 1）
+
+**目标**：章节树是真正嵌套树；正文编号行不再被误判为标题。
+
+- [ ] 候选标题评分制：硬信号=正则命中；强信号=行首 `#` / 目录白名单命中；弱信号=行长≤40 / 行尾无标点 / 前后空行。章级 = 硬信号 +（目录白名单 或 行首# 或 第x章格式）；`一、`/`（一）` = 硬信号 +（目录白名单 或 行首#）
+- [ ] 标题栈构建真树：level1 入章；level2 成章 children；level3 成最近 level2 children；level4 成最近 level3 children；层级跳变自动补锚并记 warning；正文归当前叶子节点，遇新同级/上级标题回退
+- [ ] 兼容旧扁平 structure.json：exporter.py / compare.py 读取时 `_flatten_or_nest` 归一化
+- [ ] 后处理质检增强：节编号连续性、层级跳变、目录白名单覆盖度，输出到 outline.md 和 /compare 报告
+
+**验收**：b1 重建后 children 是嵌套树；新测试覆盖正文“一、”行不带 # 且不在白名单不成为标题、旧扁平 structure.json 可导出；现有测试全绿。
+
+### P0-3 审核工作台（核心痛点 2）
+
+**目标**：把“预览对比”改成逐章审核工作台。
+
+- [ ] 后端 `compare.py` 新增 `chapter_review`：每章标题/页区间/字数/图表/子节树/警告/表格门禁/目录白名单匹配度；审核状态存 `data/build/<book>/review.json`（不进入导出链路）
+- [ ] 前端 `ComparePanel.vue` 重构：默认 tab=章节审核（章节卡片列表，一眼看到是否有问题）；卡片操作=通过/有问题/打开审核；原质检统计收进二级“全书统计”
+- [ ] `ChapterDiff.vue` 改单章审核视图：只看差异/显示上下文切换；eq 块可展开；顶部显示该章重建摘要
+- [ ] `SideBySideView.vue` 联动：Markdown 标题注入 data-page；点标题→左 PDF 跳转；PDF 可见页变化→右高亮章节（IntersectionObserver）
+- [ ] `PdfViewer.vue` 优化：只渲染当前章起始页附近 ±3 页；提供“加载整本 PDF”开关
+
+**验收**：打开书默认进章节审核，3 秒内看到每章是否有问题；b1 审核 11 章后刷新状态仍在；点击章标题 PDF 跳转、滚动 PDF 章节高亮跟随；npm run build 通过。
+
+### P0-4 diff 对齐与性能（核心痛点 2 支撑）
+
+**目标**：diff 不混入相邻章内容，大章不卡。
+
+- [ ] `compare.py` 新增 `_chapter_raw_text_v2`：用下一章起始页切边界（本章=[本章起始页, 下一章起始页)），最后一章到末批末尾
+- [ ] diff 优化：行哈希快速等值过滤，只对变化区域跑 SequenceMatcher
+- [ ] diff 缓存到 `data/build/<book>/chapter_diff_<n>.json`，structure.json 不变直接读缓存
+- [ ] diff 返回 context_before/after，前端实现展开上下文
+
+**验收**：b1 第一章 diff 不出现第二章标题；第十一章（370KB）diff <2s，缓存命中 <200ms。
+
+### P1-1 数据目录寻址 book_id 化
+
+**目标**：目录名只依赖 book_id，不因 title 变化而数据失联。
+
+- [ ] 新目录规范 `data/md/b{book_id}/`、`data/build/b{book_id}/`；books 表新增 md_dir/build_dir 列，init_db 迁移旧数据（重命名旧目录并回填）
+- [ ] 全局替换 `f"b{book_id}_{book_title}"` 为 `book_dirs(book_id)`；读旧路径 fallback 旧命名，写新数据只写新路径
+
+**验收**：旧书迁移后导出/导入/章节列表可用；改 title 产物路径不变；pytest 全过。
+
+### P1-2 导出降级 + OSS 并发
+
+**目标**：OSS 故障不阻断导出；local 模式不依赖 oss2。
+
+- [ ] oss2 延迟导入；upload 3 次指数退避重试；upload_many 用 ThreadPoolExecutor(max_workers=8)
+- [ ] `_to_oss_links` 降级：单张图最终失败→保留相对引用并收集 degraded_images
+- [ ] export_zip / export_obsidian_zip 改临时文件打包；import_obsidian 解压前清空目标目录
+
+**验收**：断网/错 key 导出不 500；453 图上传 <20s；重复导入无旧章节残留。
+
+### P1-3 任务管理轻量化
+
+**目标**：解析任务可排队、可取消、可重试。
+
+- [ ] books 表新增 parse_error TEXT；新增 task_manager.py（ThreadPoolExecutor(max_workers=1)+队列+取消标志）
+- [ ] start_parse 改提交任务，队列满 409；parse_book 单批失败自动重试 1 次（间隔 5s）
+- [ ] 新增 POST /api/books/{id}/parse/cancel；recover_stale_parsing 保留
+
+**验收**：3 本同时解析只有 1 本打 MinerU；取消后状态回 pending；瞬时失败自动重试。
+
+### P1-4 测试自包含化
+
+**目标**：干净机器/CI 上 pytest 不依赖真实教材数据。
+
+- [ ] 删除 conftest.py 对 data/md/b1_... 依赖；rebuilt_full fixture 改 tmp_path 造最小章节树（参考 test_compare.py fake_book）
+- [ ] 真实数据回归放 tests_real/（`pytest tests_real -m realdata` 单独跑）；补路由级测试：上传、删除、导出 ZIP、import-obsidian
+
+**验收**：空目录环境 pytest 全过且 0 skip。
+
+### P2 杂项清理
+
+- [ ] config.py 删 vectors_dir 残留；删除或使用 mineru_base_url；db.py 加 schema 版本号（PRAGMA user_version）
+- [ ] start.ps1 前后端输出落盘 data/logs/；文档同步（TODO 标题去 RAG、测试用例数校正）；单章导出只保留一个一级标题
+
+### 执行原则与风险
+
+- 每个 P0 任务独立完成、独立验证：pytest + npm run build + b1/b6/b8 真实数据回归；结构重建改动前后保存 structure.json 快照，人工抽查章节树 diff；不搞大爆炸重构，随时可回退。
+- 风险对策：重建变差→旧快照回退；评分过严漏章→阈值可调 + outline 列出“目录白名单未识别章节”；review.json 只做前端状态不进入导出链路；OSS 并发限流→并发可配 + 退避；任务管理器→先 max_workers=1，稳定后放开。
+
+
+
+---
+
+## 工具侧错误报告（2026-08-15）
+
+> 影响：会话内无法执行 pytest / npm / git 等命令；已用 insert 方式记录在案。
+
+### 错误现象
+- bash 工具执行任意命令（`python --version`、`cmd /c ...`、`"C:\Program Files\Git\bin\bash.exe" -lc "pwd"`、`powershell.exe ...`）均返回：
+  `Error: subprocess-local: terminal inspection is unsupported on platform win32`
+- 错误发生在命令执行之前，任何 shell 包装都无效。
+
+### 环境
+- Windows 11 / PowerShell 5.1 / Git 2.52.0（`C:\Program Files\Git\bin`）
+- Python 3.13.5（系统）+ 项目 venv 3.11.15 / Node v24.13.0 / npm 11.6.2 / uv 0.12.3
+
+### 诊断
+- 根因在工具的终端/PTY 检查层：Windows 上拿不到 Win32 控制台句柄，启动 subprocess 前即中止。
+- 与项目代码、pytest、路径无关；用户本地终端运行测试套件正常。
+- 文件编辑工具 `create` 在 Windows 上仍报 `EISDIR`（写入临时文件后 link 到不存在目标失败），需用 `insert` 到已有文件绕过。
+
+### 建议修复方向
+1. Windows 上跳过 PTY/terminal inspection，改用 `subprocess.run(..., capture_output=True)` 管道方式；
+2. 文件原子化写入改用 `os.replace` 而非 link/rename 到不存在目标。
+
+
+### 补充：加入 Git Bash 到 PATH 后再试（2026-08-15）
+- 用户将 `C:\Program Files\Git\bin` 加入 PATH 后重试：
+  - `pwd`
+  - `/c/Program Files/Git/bin/bash.exe -lc "pwd"`
+- 仍返回相同的 `subprocess-local: terminal inspection is unsupported on platform win32`。
+- 进一步确认：故障发生在工具的终端/PTY 检查层，与 PATH 中的 shell 无关；任何子进程建立方式都在命令执行前被中止。
+
+
+
+### 补充：工具侧修复后新错误（2026-08-15）
+- 工具方已修复 `terminal inspection`（spawnTerminal 拉起 Git Bash 验证 `echo HELLO_FROM_PTY && pwd` 正常），并修复 create 的 EISDIR（fs.link 平台差异）。
+- 本工具 bash 通道重试结果：
+  - `pwd` → `Error: PTY shell exited during startup`
+  - `bash -lc "echo hello"` → `Error: PTY shell exited during startup`
+  - `cmd.exe /c echo hello` → `Error: PTY shell exited during startup`
+  - `/c/Program Files/Git/bin/bash.exe --noprofile --norc -c "echo hi"` → `Error: PTY shell exited during startup`
+- 新的失败阶段：PTY 已能分配，但 shell 进程在 startup 阶段即退出（exitCode 非 0）。
+- 待确认：工具拉起 PTY 时使用的默认 shell 是否为 Git Bash；若用 cmd/PowerShell 需 conpty，若用 Git Bash 需确保 `bash.exe` 路径与 `--login` 启动参数正确（可能与用户手动 spawnTerminal 的参数不同）。
+- 若能直接改用非 PTY 管道（`subprocess.run(capture_output=True)`）执行命令，应可彻底规避 Windows PTY 兼容问题。
+
+
+
+### 关联参考：Linux dsh node-pty 原生模块缺失（2026-08-15，来自用户）
+- 现象：`npm i -g @deepseek-ai/dsh` 安装显示成功，但 `dsh web` 启动即崩：`Failed to load native module: pty.node`。
+- 根因：node-pty 1.1.0 的 npm 包只含 darwin/win32 预编译，linux-x64 需安装时下载/编译；Node 24 (ABI 137) 无预编译产物，install script 静默失败，npm 仅警告不中断 → 安装“成功”但产物缺失，运行期才暴露。
+- 修复参考：手动 `npx node-gyp rebuild` 生成 pty.node 后正常。
+- 与本工具 Windows 现象关联推断：
+  - 本工具 `PTY shell exited during startup` 很可能同源——PTY 依赖的原生模块（node-pty 或等效模块）在 **Windows x64 + 当前 Node ABI** 下预编译产物缺失/不匹配，导致 PTY 分配成功但 shell 启动即退出。
+  - 建议工具方：①确认所用 PTY 原生模块在目标平台的预编译是否随包发布；②若无，安装期不得静默失败，应显式触发/提示源码编译或改用非 PTY 管道；③Windows 上可考虑 winpty/conpty 替代 node-pty。
+
+
+### P0-5 目录驱动结构重建（2026-08-16 完成，用户提出方向：依目录重建）
+
+**问题（真实数据实测）**：规则法识别正文「第x章」切章，三类误判：
+1. **目录页残渣变假章节**——目录行页码被 OCR 丢失（`第一章 绪论  ` 行尾无数字），
+   `_is_toc_line` 的「行尾页码」判据失效 → 目录行被 classify_heading（第x章不要求行首 #）
+   当成章节。b8 工业药剂学：29 章里前 9 个是目录残渣（chars=6~16），与正文真章重复。
+2. **正文引用的法规条文变章节**——GSP 《药品管理法》条文被引用时带「第x章
+   （第一章 总则 等）」，不在教材目录 → 被切成一节一节。
+3. **页码错乱**——章 page_range 是批区间（p1-25），目录真实页码（121/148…）丢失。
+
+**方案（structure.py，P0-5）**：
+- `extract_toc_entries`：从「## 目录」锚点后提取目录条目 [{no, title, page|None}]，
+  页码 OCR 丢失容忍（None），遇正文首个带 # 章标题停止
+- `rebuild_v2` 集成（numbered 风格 + 目录条目 >=3 才启用，hash 风格/无目录完全回退）：
+  - **目录区域整段跳过**：目录锚点后到正文首章的目录行不再参与章节识别
+  - **白名单强制**：正文「第x章」必须命中目录条目标题（归一化匹配）才建章，
+    伪章（正文引用条文/残渣）标题行降级为内容附加到当前章
+  - **顺序锚定**：toc_ptr 按目录顺序推进（允许跳号，乱序/重复拒绝）
+  - **页码锚定**：目录有页码时 page_range 用真实页码（p121），无则回退批区间
+- `_toc_match` 返回 (matched, page) 元组——匹配成功但无页码必须与未命中区分
+
+**验证（真实数据）**：
+- b8 工业药剂学：29 → 20 章（9 个目录残渣消失，目录 20 章全对上）
+- b6 分析化学：18 章不变（无退化）
+- b1 概率统计：11 章不变，章节 page_range 从批区间升级为真实页码（p4/p35/p60…）
+- pytest 95 全绿（新增 test_toc_driven.py 7 用例）
+- 导出链路（rebuilt/obsidian zip）三本全部正常

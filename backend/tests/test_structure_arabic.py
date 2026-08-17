@@ -12,7 +12,7 @@ from app.services import structure
 
 def _rebuild(text: str) -> dict:
     batches = [{"idx": 1, "page_start": 1, "page_end": 99, "text": text, "content_list": None}]
-    return structure.rebuild(batches)
+    return structure.rebuild_v2(batches)
 
 
 def _chapter_titles(result: dict) -> list[str]:
@@ -48,7 +48,9 @@ def test_arabic_level3_paren():
     text = "# 第1章 概论\n# 第1节 内容\n## (1) 子标题\n正文\n## （ 2 ）另一个\n正文"
     result = _rebuild(text)
     ch = result["chapters"][0]
-    level3 = [c for c in ch["children"] if c["level"] == 3]
+    # P0-2 真树化后：节标题是章的 children，三级标题是节的 children
+    section = ch["children"][0]
+    level3 = [c for c in section["children"] if c["level"] == 3]
     assert len(level3) == 2
     assert level3[0]["title"] == "(1) 子标题"
     assert level3[1]["title"] == "（ 2 ）另一个"
@@ -116,3 +118,68 @@ def test_cn_chapter_still_works():
     result = _rebuild(text)
     assert len(result["chapters"]) == 2
     assert result["chapters"][0]["children"][0]["title"] == "第一节 概述"
+
+
+
+# ── P0-1 目录行过滤放宽（2026-08-15）──────────────────
+
+def test_toc_line_no_dots_filtered():
+    """无点线目录行（只有页码）也应被过滤，不进入章节树。"""
+    text = "# 第1章 绪论\n正文\n第一章 事件与概率 1\n第二章 随机变量 3"
+    result = _rebuild(text)
+    assert _chapter_titles(result) == ["第1章 绪论"]
+
+
+def test_toc_line_paren_page_filtered():
+    """带括号页码的阿拉伯数字节目录行应被过滤，不成为节标题。"""
+    text = "# 第1章 绪论\n正文\n1.1 药物的质量评价 (1)\n1.2 药物分析 (2)"
+    result = _rebuild(text)
+    ch = result["chapters"][0]
+    assert ch["children"] == []
+    assert "正文" in ch["lines"]
+
+
+def test_toc_line_old_dots_still_filtered():
+    """旧版点线目录行仍然被过滤。"""
+    text = "# 第一章 管理\n正文\n第二章 组织 …… 12"
+    result = _rebuild(text)
+    assert _chapter_titles(result) == ["第一章 管理"]
+
+
+def test_toc_batch_ratio_skip_whole_batch():
+    """目录行占比 >50% 的批次整批降权，不参与标题识别。"""
+    text = "\n".join([
+        "第一章 事件与概率 1",
+        "第二章 随机变量 3",
+        "第三章 分布 5",
+    ])
+    batches = [{"idx": 1, "page_start": 1, "page_end": 3, "text": text, "content_list": None}]
+    result = structure.rebuild(batches)
+    assert result["chapters"] == []
+
+
+# ── P0-2 标题评分制 + 真树化（2026-08-15）────────────────
+
+def test_plain_cn_dot_line_not_heading_without_hash_or_toc():
+    """正文中的“一、”行：无 # 且无目录白名单时不当标题，归入正文。"""
+    text = "# 第1章 绪论\n正文开头\n一、这是正文内容不是标题\n继续"
+    result = _rebuild(text)
+    ch = result["chapters"][0]
+    assert ch["children"] == []
+    assert any("一、这是正文内容不是标题" in l for l in ch["lines"])
+
+
+def test_nested_tree_structure():
+    """真树化：节 → 小节 → 次小节 嵌套在 children 中。"""
+    text = (
+        "# 第1章 概论\n"
+        "# 第1节 内容\n"
+        "## 一、概述\n"
+        "### （一）背景\n"
+        "正文"
+    )
+    result = _rebuild(text)
+    ch = result["chapters"][0]
+    assert ch["children"][0]["title"] == "第1节 内容"
+    assert ch["children"][0]["children"][0]["title"] == "一、概述"
+    assert ch["children"][0]["children"][0]["children"][0]["title"] == "（一）背景"

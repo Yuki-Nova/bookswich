@@ -7,6 +7,10 @@ v4 策略（用户决策）：
 - **公式定界符规范化**：MinerU 输出的 `$ ... $` / `$$ ... $$` 内侧常带空格
   （如 `$ P ( X = k ) $`），Typora 不识别带空格的定界符 → 导出时去掉定界符
   内侧首尾空格（`$P(X=k)$`），公式内容本身零改动。
+
+2026-08-16 借鉴 mineru-tianshu 的输出清洗：
+- 正文深度清洗（HTML 实体反转义 / <del> 幻觉标签 / 空行折叠）——表格行除外
+- <img> 标签图片引用归一化为 Markdown 语法，打包/统计链路 IMG_RE 兼容两种写法
 """
 from __future__ import annotations
 
@@ -22,7 +26,72 @@ from . import oss_images
 from .structure import load_batches
 
 MATH_RE = re.compile(r"\$\$(.+?)\$\$|\$(.+?)\$", re.S)
-IMG_RE = re.compile(r"!\[[^\]]*\]\((images/[^)\s]+)\)")
+# 图片引用：兼容 Markdown 语法 ![](images/..) 与 HTML 标签 <img src="images/..">
+# （2026-08-16 借鉴 mineru-tianshu 的输出规范化：MinerU 偶尔输出 <img> 形式，
+#   导出前归一化为 Markdown 语法，打包/统计链路全部经 _img_rel 取路径）
+IMG_RE = re.compile(
+    r"!\[[^\]]*\]\((images/[^)\s]+)\)|"
+    r"<img\s+[^>]*src=[\"'](images/[^\"']+)[\"'][^>]*>",
+    re.I,
+)
+
+
+def _img_rel(m: re.Match) -> str:
+    """从 IMG_RE 匹配结果取图片相对路径（两种语法共用）。"""
+    return m.group(1) if m.group(1) is not None else m.group(2)
+
+
+# 外部图片 URL（http/https）：归一化时跳过，不归入本地打包链路
+_REMOTE_URL_RE = re.compile(r"https?://", re.I)
+# <del> 幻觉标签（MinerU 模型偶尔在文本里输出）
+_DEL_TAG_RE = re.compile(r"</?del>", re.I)
+
+
+def clean_markdown(text: str) -> str:
+    """深度清洗 MinerU 输出文本（借鉴 mineru-tianshu _clean_markdown 的安全子集）。
+
+    - 双重 HTML 反转义（&amp;gt; → >）+ 暴力替换残留 &gt;/&lt;/&amp;
+      （MinerU 输出正文里常带未解码实体，Typora/Obsidian 渲染成字面文本）
+    - 删除 <del> 幻觉标签（内容保留）
+    - 3+ 连续空行折叠为 1 个空行
+
+    刻意不做（数学教材风险大于收益）：
+    - 整段重复去重 (\\\\S+)(\\\\s+)\\\\1 —— 可能误伤公式内合法重复 token
+    - ~ → 空格、\\\\mathrm{} 剥离 —— LaTeX 数学模式有语义
+    - 表格内容绝不处理（CLAUDE.md 约定 #1，调用方保证不传入表格行）
+    """
+    if not text:
+        return ""
+    text = html.unescape(text)
+    text = html.unescape(text)
+    text = (
+        text.replace("&gt;", ">")
+        .replace("&lt;", "<")
+        .replace("&amp;", "&")
+    )
+    text = _DEL_TAG_RE.sub("", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text
+
+
+def normalize_html_images(text: str) -> str:
+    """把 <img src="images/xxx"> 归一化为 Markdown 图片语法。
+
+    仅处理本地 images/ 相对引用；外部 URL（http/https）不动。
+    归一化后 IMG_RE 打包/统计链路无需感知两种语法。
+    """
+    def _to_md(m: re.Match) -> str:
+        src = m.group(2)  # group(1) 是引号，group(2) 才是 src 路径
+        if _REMOTE_URL_RE.match(src):
+            return m.group(0)
+        return f"![]({src})"
+
+    return re.sub(
+        r'<img\b[^>]*?\bsrc=(["\'])(.*?)\1[^>]*>',
+        _to_md,
+        text,
+        flags=re.I,
+    )
 
 
 def normalize_math(text: str) -> str:
@@ -60,8 +129,9 @@ def format_table_md(table_html: str) -> str:
     1. `<eq>...</eq>` → `$...$`（html.unescape 解码 `&lt;`/`&gt;` 实体，
        否则 LaTeX 把 `&` 当列分隔符报 misplace &）
     2. 单元格竖线转义：公式内 `|` → `\vert `（LaTeX 数学模式语义正确），
-       公式外 `|` → `\\|`（Markdown 转义）——否则条件概率 P(A|B) 切断表格列
-    3. `<tr>/<td>` → `| cell | cell |` + `| --- |` 分隔行
+       公式外 `|` → `\|`（Markdown 转义）——否则条件概率 P(A|B) 切断表格列
+    3. `<tr>/<td>` → `| cell | cell |` + `| --- |` 分隔行；
+       单元格文本同时做 HTML 实体解码（补齐 <eq> 之外的 &gt;/&lt;/&amp; 残留）
     """
     import html as html_mod
     import re
@@ -84,12 +154,12 @@ def format_table_md(table_html: str) -> str:
                 out.append(part.replace("|", r"\|"))
         return "".join(out)
 
-    # 3. 行/单元格 → Markdown
+    # 3. 行/单元格 → Markdown（单元格文本同样做实体解码）
     rows = re.findall(r"<tr>(.*?)</tr>", table_html, re.S)
     md_rows: list[str] = []
     for row in rows:
         cells = [
-            _escape_pipes(c.strip().replace("\n", " "))
+            _escape_pipes(html_mod.unescape(c.strip().replace("\n", " ")))
             for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)
         ]
         if cells:
@@ -157,7 +227,7 @@ def _table_quality_gates(table_html: str) -> tuple[bool, str]:
 
 
 def _node_to_md(node: dict) -> str:
-    """章节树节点 → markdown（表格原样保留 + 公式规范化）。"""
+    """章节树节点 → markdown（表格原样保留 + 公式规范化 + 深度清洗）。"""
     parts: list[str] = []
     if node.get("board"):
         parts.append(f"\n## [板块] {node['title']}\n")
@@ -171,6 +241,7 @@ def _node_to_md(node: dict) -> str:
             if stripped.startswith("<table"):
                 # 表格：6 道质量门禁通过 → 转 Markdown（公式可渲染）；
                 # 未通过 → 保留 HTML 原样（格式永远正确）
+                # 表格内容不参与深度清洗（CLAUDE.md 约定 #1）
                 ok, reason = _table_quality_gates(stripped)
                 if ok:
                     parts.append(format_table_md(stripped))
@@ -178,10 +249,13 @@ def _node_to_md(node: dict) -> str:
                     formatted = format_html_table(stripped)
                     parts.append("\n".join(normalize_math(l) for l in formatted.splitlines()))
             else:
-                parts.append(normalize_math(line))
+                # 非表格行：图片引用归一化 → 公式规范化 → 深度清洗
+                parts.append(clean_markdown(normalize_math(normalize_html_images(line))))
     for sub in node.get("children") or []:
         parts.append(_node_to_md(sub))
-    return "\n".join(parts)
+    # 空行折叠放在节点级 join 后：clean_markdown 逐行调用无跨行上下文，
+    # 行间 3+ 连续空行只能在这里统一压平
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(parts))
 
 
 def export_rebuilt(book_id: int, book_title: str, chapter: int | None = None) -> str:
@@ -209,7 +283,8 @@ def export_rebuilt(book_id: int, book_title: str, chapter: int | None = None) ->
 
     for ch in chapters:
         parts.append(_node_to_md(ch))
-    return "\n".join(parts)
+    # 头部与首章拼接处可能产生 3+ 空行，统一折叠
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(parts))
 
 
 def chapter_titles(book_id: int, book_title: str) -> list[str]:
@@ -254,7 +329,7 @@ def _to_oss_links(
     items: list[tuple[str, Path]] = []
     rel_to_key: dict[str, str] = {}
     for m in IMG_RE.finditer(md_text):
-        rel = m.group(1)
+        rel = _img_rel(m)
         if rel in seen:
             continue
         seen.add(rel)
@@ -347,7 +422,7 @@ def export_obsidian_zip(book_id: int, book_title: str, image_mode: str = "local"
             if uploader is None:
                 seen: set[str] = set()
                 for m in IMG_RE.finditer(md_text):
-                    rel = m.group(1)
+                    rel = _img_rel(m)
                     if rel in seen:
                         continue
                     seen.add(rel)
@@ -389,7 +464,7 @@ def export_zip(
         if uploader is None:
             seen: set[str] = set()
             for m in IMG_RE.finditer(md_text):
-                rel = m.group(1)
+                rel = _img_rel(m)
                 if rel in seen:
                     continue
                 seen.add(rel)

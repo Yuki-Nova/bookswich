@@ -124,7 +124,7 @@ def test_compare_report_missing_structure(tmp_path, monkeypatch):
 
 def test_chapter_diff_types(fake_book):
     """diff 含 eq（合并计数）/ del / add 三类。"""
-    d = compare.build_chapter_diff(1, "测试教材", 1)
+    d = compare.build_chapter_diff_v2(1, "测试教材", 1)
     assert d["chapter"] == 1
     assert d["title"] == "第1章 绪论"
     types = {item["t"] for item in d["diff"]}
@@ -139,7 +139,7 @@ def test_chapter_diff_types(fake_book):
 
 def test_chapter_diff_out_of_range(fake_book):
     with pytest.raises(ValueError):
-        compare.build_chapter_diff(1, "测试教材", 99)
+        compare.build_chapter_diff_v2(1, "测试教材", 99)
 
 
 # ── 章节 markdown（并排预览数据源）─────────────────────

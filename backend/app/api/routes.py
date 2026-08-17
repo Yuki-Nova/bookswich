@@ -395,7 +395,7 @@ async def chapter_diff(book_id: int, chapter_no: int, as_format: str = Query("di
     try:
         if as_format == "markdown":
             return compare.chapter_markdown(book_id, row["title"], chapter_no)
-        return compare.build_chapter_diff(book_id, row["title"], chapter_no)
+        return compare.build_chapter_diff_v2(book_id, row["title"], chapter_no)
     except FileNotFoundError as exc:
         raise HTTPException(400, str(exc))
     except ValueError as exc:

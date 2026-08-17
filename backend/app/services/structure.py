@@ -33,16 +33,83 @@ RE_BOARD = re.compile(
     r"^\s*(思考与练习|习题|上机训练题|内容提要|本章内容提要|参考答案|知识拓展|知识链接|"
     r"SPSS软件应用提要|附录|索引|参考文献|目录|目\s*录)\s*[一二三四五六七八九十\d]*\s*$"
 )
-# 目录行：章节标题 + 省略号点线 + 页码（如 "第五章 大数定律与中心极限定理……129"）
+# 目录行：章节编号 + 标题 + 页码（如 "第五章 大数定律与中心极限定理……129"）。
+# P0-1 放宽：点线可有可无（MinerU OCR 对点线识别不稳），因此正则不再要求 `…`。
 # 页码可能带括号："第一章 误差和分析数据处理…… (1)"（分析化学等教材目录格式）
 # 数字章节目录行："1.1 药物质量的评价 …… (1)"（阿拉伯数字章/节教材）
 RE_TOC_LINE = re.compile(
-    rf"^\s*(?:第\s*{CN_OR_AR}\s*章|\d+(?:\.\d+)*)\s*\S.*….*(?:（\d+）|\(\d+\)|\d+)\s*$"
+    rf"^\s*(?:第\s*{CN_OR_AR}\s*章|\d+(?:\.\d+)*)\s*\S.*(?:（\d+）|\(\d+\)|\d+)\s*$"
 )
 RE_TABLE_START = re.compile(r"<table")
 RE_TABLE_END = re.compile(r"</table>")
 RE_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 RE_HASH = re.compile(r"^#{1,6}\s*")
+
+# 目录页码结尾（全角/半角括号页码或裸数字）
+RE_TOC_PAGE_TAIL = re.compile(r"(?:[（(]\s*\d+\s*[）)]|\d+)\s*$")
+
+
+def _is_toc_line(line: str) -> bool:
+    """判断一行是否目录行。
+
+    放宽版（2026-08-15，P0-1）：旧 RE_TOC_LINE 要求点线 `…`，MinerU OCR 对点线
+    识别极不稳定（`.`/空格/缺失），导致目录行漏拦后被当章/节标题切进正文。
+
+    新判据：
+      1. 行首是章/节编号（第x章 / x.y / x.y.z）
+      2. 行尾是页码（（1）/(1)/1）
+      3. 标题短、不含图片/表格
+    点线可有可无；旧 RE_TOC_LINE 命中仍直接认目录行（兼容）。
+    """
+    s = line.strip()
+    if not s:
+        return False
+    if RE_TOC_LINE.match(s):
+        return True
+    if not re.match(rf"^(?:第\s*{CN_OR_AR}\s*章|\d+(?:\.\d+)*)\s*\S", s):
+        return False
+    if not RE_TOC_PAGE_TAIL.search(s):
+        return False
+    body = RE_TOC_PAGE_TAIL.sub("", s)
+    if len(body) > 60:
+        return False
+    if RE_IMAGE.search(body) or RE_TABLE_START.search(body):
+        return False
+    return True
+
+
+def _strip_toc_page_no(line: str) -> str:
+    """去目录行尾部页码与点线，返回标题部分。"""
+    body = RE_TOC_PAGE_TAIL.sub("", line.strip())
+    body = re.sub(r"[….]{2,}\s*$", "", body).strip()
+    return body
+
+
+def _extract_toc_title(line: str) -> str | None:
+    """从目录行提取章节标题文本（去编号、去页码）。"""
+    body = _strip_toc_page_no(line)
+    if not body:
+        return None
+    m = re.match(rf"^第\s*{CN_OR_AR}\s*章\s+(.+)$", body)
+    if m:
+        return m.group(1).strip()
+    m = re.match(r"^\d+(?:\.\d+)*\s+(.+)$", body)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def _toc_line_ratios(batches: list[dict]) -> dict[int, float]:
+    """返回每批目录行占比 {batch_idx: ratio}，用于目录页整页降权。"""
+    ratios: dict[int, float] = {}
+    for batch in batches:
+        lines = _split_lines_with_tables(batch["text"])
+        if not lines:
+            ratios[int(batch["idx"])] = 0.0
+            continue
+        toc_n = sum(1 for l in lines if _is_toc_line(l.strip()))
+        ratios[int(batch["idx"])] = toc_n / len(lines)
+    return ratios
 
 
 class Heading:
@@ -186,6 +253,64 @@ def _extract_toc_titles(batches: list[dict]) -> set[str]:
     return titles
 
 
+def _extract_toc_titles_v2(batches: list[dict]) -> set[str]:
+    """P0-1 目录标题提取 v2：基于 _is_toc_line 放宽版目录行判断。
+
+    不再依赖 '目录' 标题行进入目录区，也不要求点线；只要求
+    「章/节编号开头 + 页码结尾 + 标题短」。旧版对 OCR 点线识别
+    不稳定导致目录标题白名单为空，进而 hash 兜底失效。
+    """
+    titles: set[str] = set()
+    for batch in batches:
+        for raw_line in _split_lines_with_tables(batch["text"]):
+            line = raw_line.strip()
+            if not line or not _is_toc_line(line):
+                continue
+            t = _extract_toc_title(line)
+            if t:
+                titles.add(_norm_title(t))
+    return titles
+
+
+def extract_toc_entries(batches: list[dict]) -> list[dict]:
+    """P0-5 从目录页提取章节条目 [{no, title, page|None}]。
+
+    目录区域判据：出现 「目录/目 录」 锚点行之后连续的无 # 「第x章」行；
+    遇到带 # 的章标题（正文开始）即停止。页码 OCR 常丢失（容忍 None，
+    有则记录用于章节页码锚定）。目录提取失败返回 []（调用方回退原逻辑）。
+    """
+    entries: list[dict] = []
+    in_toc = False
+    for batch in batches:
+        for raw_line in _split_lines_with_tables(batch["text"]):
+            s = raw_line.strip()
+            if not s:
+                continue
+            if not in_toc:
+                if s in ("目录", "目 录", "目　录") or s.lstrip("#").strip() == "目录":
+                    in_toc = True
+                continue
+            # 正文首章（带 # 的 第x章）→ 目录区域结束，不再收集
+            if s.lstrip().startswith("#") and re.match(
+                rf"^#+\s*第\s*{CN_OR_AR}\s*章", s.lstrip()
+            ):
+                return entries
+            m = re.match(rf"^第\s*({CN_OR_AR})\s*[章篇]\s*(.*)$", s)
+            if not m:
+                continue
+            no = cn_to_int(m.group(1))
+            rest = m.group(2).strip()
+            page = None
+            pm = re.search(r"(?:[（(]?\s*(\d+)\s*[）)]?|\.{2,}\s*(\d+))\s*$", rest)
+            if pm:
+                page = int(pm.group(1) or pm.group(2))
+                rest = rest[: pm.start()].strip()
+            rest = re.sub(r"[….·\-—\s]+$", "", rest).strip()
+            if rest:
+                entries.append({"no": no, "title": rest, "page": page})
+    return entries
+
+
 def _detect_chapter_style(batches: list[dict]) -> tuple[str, set[str]]:
     """判断章标题风格：'numbered'（第x章）/ 'hash'（MinerU # 标题，无编号教材）。
 
@@ -207,13 +332,279 @@ def _detect_chapter_style(batches: list[dict]) -> tuple[str, set[str]]:
                 numbered += 1
             elif line.lstrip().startswith("#") and RE_BOARD.match(stripped) is None:
                 hashed += 1
-    toc = _extract_toc_titles(batches)
+    toc = _extract_toc_titles_v2(batches)
     if numbered > 0:
         return "numbered", toc
     if hashed >= 3:
         return "hash", toc
     return "numbered", toc
 
+
+
+def _heading_in_toc(title: str, toc_titles: set[str]) -> bool:
+    """判断标题是否命中目录白名单（去编号后归一化匹配）。"""
+    if not toc_titles:
+        return False
+    if _norm_title(title) in toc_titles:
+        return True
+    body = re.sub(rf"^第\s*{CN_OR_AR}\s*[章节]\s*", "", title)
+    body = re.sub(r"^\d+(?:\.\d+)*\s*", "", body)
+    body = re.sub(rf"^{CN_NUM}、\s*", "", body)
+    body = re.sub(rf"^[（(]\s*{CN_OR_AR}\s*[）)]\s*", "", body)
+    return _norm_title(body) in toc_titles
+
+
+def _should_accept_heading(heading: Heading | None, line: str, toc_titles: set[str]) -> bool:
+    """P0-2 评分制二次过滤：对 classify_heading 结果做收紧。
+
+    章级：第x章 / 第x节格式本身可信，直接接受；hash 兜底章必须命中目录白名单。
+    一、（kind=cn）与（一）（level 3 括号标题）必须有行首 # 或目录白名单命中，
+    否则视为正文编号行，不参与结构树。
+    """
+    if heading is None or heading.board:
+        return True
+    has_hash = line.lstrip().startswith("#")
+    if heading.level == 1:
+        if heading.kind == "hash":
+            return _heading_in_toc(heading.title, toc_titles)
+        return True
+    if heading.kind in ("jie", "dot"):
+        return True
+    if heading.kind == "cn":
+        return has_hash or _heading_in_toc(heading.title, toc_titles)
+    if heading.kind == "" and heading.level == 3 and RE_LEVEL3.match(heading.title):
+        return has_hash or _heading_in_toc(heading.title, toc_titles)
+    return True
+
+
+def rebuild_v2(batches: list[dict], book_title: str = "") -> dict:
+    """P0-2 真树化重建：嵌套 children + 标题评分制 + 目录页整页降权。
+
+    与 v1 的差异：
+      1. 对 `一、` / `（一）` 标题做二次过滤（行首 # 或目录白名单）；
+      2. 用标题栈构建真正的嵌套树（节 → 小节 → 次小节）；
+      3. 层级跳变自动补锚并记 warning；
+      4. 目录页批次（目录行占比 >50%）整批跳过（P0-1）。
+    """
+    chapters: list[dict] = []
+    cur: dict | None = None
+    stack: list[dict] = []              # 当前路径节点，stack[-1] 为正文归属叶子
+    board_node: dict | None = None
+    sec_kind: str | None = None
+    pre_matter_parts: list[str] = []
+    skipped: list[str] = []
+    warnings: list[str] = []
+    in_pre_matter = True
+    style, toc_titles = _detect_chapter_style(batches)
+    toc_ratios = _toc_line_ratios(batches)
+    # P0-5 目录驱动：numbered 风格且目录可用（>=3 条目）时启用白名单+顺序锚定
+    toc_entries = extract_toc_entries(batches)
+    toc_active = style == "numbered" and len(toc_entries) >= 3
+    toc_ptr = 0
+    in_toc_region = False
+
+    def _toc_match(title: str) -> tuple[bool, int | None]:
+        """目录白名单 + 顺序匹配，返回 (是否命中, 目录页码或 None)。
+
+        命中但无页码（OCR 丢页码）返回 (True, None)——必须与「未命中」区分，
+        否则页码缺失的目录条目会把真章误判为伪章。
+        顺序推进（toc_ptr）：允许跳号（某章 OCR 漏识别），但乱序/重复/白名单外
+        的「第x章」一律拒绝——正文引用的法规条文、目录残渣都过不了这关。
+        """
+        nonlocal toc_ptr
+        m = re.match(rf"^第\s*({CN_OR_AR})\s*章\s*(.*)$", title)
+        if not m:
+            return False, None
+        no = cn_to_int(m.group(1))
+        body = _norm_title(m.group(2).strip())
+        for k in range(toc_ptr, len(toc_entries)):
+            e = toc_entries[k]
+            if e["no"] == no and body and _norm_title(e["title"]) == body:
+                toc_ptr = k + 1
+                return True, e.get("page")
+        return False, None
+
+    def _new_node(title: str, level: int, page_range: str, board: bool = False) -> dict:
+        return {
+            "title": title,
+            "level": level,
+            "page_range": page_range,
+            "lines": [title],
+            "char_count": len(title),
+            "image_count": 0,
+            "table_count": 0,
+            "children": [],
+            "board": board,
+        }
+
+    def _attach_content(node: dict, line: str) -> None:
+        node["lines"].append(line)
+        node["char_count"] += len(line)
+        if RE_IMAGE.search(line):
+            node["image_count"] += 1
+        if RE_TABLE_START.search(line):
+            node["table_count"] += 1
+
+    def _attach_sub_node(ch: dict, node: dict) -> None:
+        """把子标题挂到最近的低层级节点，返回时 stack 指向新叶子。"""
+        nonlocal warnings
+        parent = ch
+        while stack:
+            last = stack[-1]
+            if int(last.get("level", 1)) < int(node["level"]):
+                parent = last
+                break
+            stack.pop()
+        if int(node["level"]) - int(parent.get("level", 1)) > 1:
+            warnings.append(
+                f"{node['title']}: 层级跳变（{parent.get('level')} -> {node['level']}）"
+            )
+        parent.setdefault("children", []).append(node)
+        stack.append(node)
+
+    for batch in batches:
+        # P0-1：目录页整页降权
+        if toc_ratios.get(batch["idx"], 0.0) > 0.5:
+            continue
+        page_range = f"p{batch['page_start']}-{batch['page_end']}"
+
+        for raw_line in _split_lines_with_tables(batch["text"]):
+            line = raw_line.strip()
+            if not line:
+                continue
+            if _is_toc_line(line):
+                continue
+            # P0-5 目录区域：目录锚点后到正文首章的目录行整段跳过
+            # （目录行页码被 OCR 丢失时 _is_toc_line 失效，靠区域定位兜底；
+            #   仅 numbered 风格启用，hash 风格回退原逻辑）
+            if toc_active:
+                if not in_toc_region:
+                    if line in ("目录", "目 录", "目　录") or line.lstrip("#").strip() == "目录":
+                        in_toc_region = True
+                        continue
+                else:
+                    stripped_r = RE_HASH.sub("", line).strip()
+                    if line.lstrip().startswith("#") and (
+                        RE_CH_LEVEL1.match(stripped_r) or RE_CH_LEVEL1_AR.match(stripped_r)
+                    ):
+                        in_toc_region = False  # 正文首章：退出目录区域，正常处理本行
+                    else:
+                        continue
+
+            heading = classify_heading(line)
+
+            # hash 兜底：无编号教材的 MinerU # 一级标题当章标题
+            if heading is None and style == "hash":
+                stripped = RE_HASH.sub("", line).strip()
+                if (
+                    line.lstrip().startswith("#")
+                    and stripped
+                    and RE_BOARD.match(stripped) is None
+                    and not _is_toc_line(line)
+                    and not RE_CH_LEVEL1_AR.match(stripped)
+                    and not RE_LEVEL2_JIE.match(stripped)
+                    and toc_titles
+                    and _norm_title(stripped) in toc_titles
+                ):
+                    heading = Heading(1, stripped.lstrip("#").strip(), 0, kind="hash")
+
+            # hash 风格统一过滤：章标题必须在目录白名单内
+            if style == "hash" and heading is not None and heading.level == 1 and toc_titles:
+                h_title = _norm_title(heading.title.lstrip("·•").strip())
+                if h_title not in toc_titles:
+                    heading = None
+
+            # 特殊板块区域：区域内标题行降级为内容，直到新章
+            if board_node is not None:
+                if heading is not None and heading.level == 1 and not heading.board:
+                    board_node = None
+                else:
+                    if heading is not None and heading.board:
+                        board_node = _new_node(heading.title, 0, page_range, board=True)
+                        if cur is not None:
+                            cur["children"].append(board_node)
+                            stack = [cur, board_node]
+                    else:
+                        _attach_content(board_node, line)
+                    continue
+
+            if heading is not None:
+                if heading.board:
+                    if cur is None:
+                        if in_pre_matter:
+                            continue
+                        skipped.append(line)
+                    else:
+                        board_node = _new_node(heading.title, 0, page_range, board=True)
+                        cur["children"].append(board_node)
+                        stack = [cur, board_node]
+                    continue
+
+                # P0-2 评分制过滤：不达标的候选标题当正文处理
+                if not _should_accept_heading(heading, line, toc_titles):
+                    heading = None
+                else:
+                    # 层级上下文调整（第x节 + 一、 → 一、降为 3 级）
+                    if heading.kind in ("jie", "dot"):
+                        sec_kind = heading.kind
+                    elif heading.kind == "cn":
+                        if sec_kind in ("jie", "cn_sub"):
+                            heading = Heading(3, heading.title, 0, kind="cn_sub")
+                            sec_kind = "cn_sub"
+                        else:
+                            sec_kind = "cn"
+                    elif heading.kind == "" and heading.level == 3 and sec_kind == "cn_sub":
+                        heading = Heading(4, heading.title, 0)
+
+                    if heading.level == 1:
+                        toc_ok, toc_page = (
+                            _toc_match(heading.title) if toc_active else (True, None)
+                        )
+                        if toc_active and not toc_ok:
+                            # 伪章（正文引用的条文、目录残渣）：标题行降级为内容
+                            if cur is not None:
+                                _attach_content(stack[-1] if stack else cur, line)
+                            elif not in_pre_matter:
+                                skipped.append(line)
+                            continue
+                        else:
+                            in_pre_matter = False
+                            sec_kind = None
+                            pr = f"p{toc_page}" if toc_page else page_range
+                            cur = _new_node(heading.title, 1, pr)
+                            chapters.append(cur)
+                            stack = [cur]
+                            continue
+                    else:
+                        if cur is None:
+                            if in_pre_matter:
+                                continue
+                            skipped.append(line)
+                        else:
+                            node = _new_node(heading.title, heading.level, page_range)
+                            _attach_sub_node(cur, node)
+                    continue
+
+            # 普通内容行
+            if cur is None:
+                if in_pre_matter:
+                    pre_matter_parts.append(line)
+                continue
+            if board_node is not None and stack and stack[-1].get("board"):
+                _attach_content(stack[-1], line)
+            elif stack:
+                _attach_content(stack[-1], line)
+            else:
+                _attach_content(cur, line)
+
+    return {
+        "book": book_title,
+        "pages_covered": _pages_covered(batches),
+        "chapters": chapters,
+        "pre_matter_chars": sum(len(x) for x in pre_matter_parts),
+        "skipped_orphans": skipped,
+        "warnings": warnings,
+    }
 
 def rebuild(batches: list[dict], book_title: str = "") -> dict:
     """主流程：返回 structure dict。
@@ -240,6 +631,7 @@ def rebuild(batches: list[dict], book_title: str = "") -> dict:
     skipped: list[str] = []
     in_pre_matter = True
     style, toc_titles = _detect_chapter_style(batches)
+    toc_ratios = _toc_line_ratios(batches)
 
     def _new_board(title: str, page_range: str) -> dict:
         return {
@@ -263,6 +655,9 @@ def rebuild(batches: list[dict], book_title: str = "") -> dict:
             node["table_count"] += 1
 
     for batch in batches:
+        # P0-1：目录页整页降权（目录行占比 >50% 的批次只参与目录提取，不参与标题识别）
+        if toc_ratios.get(batch["idx"], 0.0) > 0.5:
+            continue
         page_range = f"p{batch['page_start']}-{batch['page_end']}"
 
         def _pr(title: str) -> str:
@@ -511,6 +906,76 @@ def build_outline_report(structure: dict, book_name: str) -> str:
     return "\n".join(lines)
 
 
+def build_outline_report_v2(structure: dict, book_name: str) -> str:
+    """P0-2 大纲报告 v2：递归渲染嵌套章节树 + 合并层级跳变警告。"""
+    chapters = structure["chapters"]
+    lines = [
+        f"# 《{book_name}》结构大纲（P0-2 真树化重建）",
+        "",
+        f"- 覆盖页数：{structure['pages_covered']}",
+        f"- 章节数：{len(chapters)}",
+        f"- 前置部分字符（已丢弃）：{structure['pre_matter_chars']}",
+        f"- 孤儿标题（无法归入章节）：{len(structure['skipped_orphans'])}",
+        "",
+        "## 章节树",
+        "",
+    ]
+
+    total_chars = 0
+    total_images = 0
+    total_tables = 0
+    boards: list[str] = []
+
+    def walk(nodes: list[dict], depth: int) -> None:
+        nonlocal total_chars, total_images, total_tables
+        for n in nodes:
+            if n.get("board"):
+                boards.append(n["title"])
+                continue
+            total_chars += int(n.get("char_count", 0))
+            total_images += int(n.get("image_count", 0))
+            total_tables += int(n.get("table_count", 0))
+            if depth == 0:
+                lines.append(
+                    f"- **{n['title']}**（{n.get('page_range', '')}，"
+                    f"{n.get('char_count', 0)}字，图{n.get('image_count', 0)} "
+                    f"表{n.get('table_count', 0)}）"
+                )
+            else:
+                indent = "  " * depth
+                lines.append(
+                    f"{indent}- {n['title']}（{n.get('page_range', '')}，"
+                    f"{n.get('char_count', 0)}字）"
+                )
+            walk(n.get("children") or [], depth + 1)
+
+    walk(chapters, 0)
+
+    lines += ["", "## 统计", ""]
+    lines.append(f"- 正文字符总数：{total_chars}")
+    lines.append(f"- 图片总数：{total_images}")
+    lines.append(f"- 表格总数：{total_tables}")
+
+    warnings = list(structure.get("warnings", []))
+    warnings += check_section_continuity(structure)
+    if warnings:
+        lines += ["", "## ⚠ 质检警告", ""]
+        for w in warnings:
+            lines.append(f"- {w}")
+    if boards:
+        lines.append("")
+        lines.append("## 特殊板块（不入大纲，保留文本）")
+        for b in boards:
+            lines.append(f"- {b}")
+
+    if structure["skipped_orphans"]:
+        lines += ["", "## ⚠ 孤儿标题（待检查）", ""]
+        for s in structure["skipped_orphans"][:20]:
+            lines.append(f"- {s}")
+
+    return "\n".join(lines)
+
+
 # ── 入口 ──────────────────────────────────────────────
 
 def run(book_id: int, book_title: str) -> dict:
@@ -520,12 +985,12 @@ def run(book_id: int, book_title: str) -> dict:
     if not batches:
         raise FileNotFoundError(f"未找到批次 md：{md_dir}")
 
-    structure = rebuild(batches, book_title=book_title)
+    structure = rebuild_v2(batches, book_title=book_title)
     build_dir = settings.build_dir / f"b{book_id}_{book_title}"
     build_dir.mkdir(parents=True, exist_ok=True)
     (build_dir / "structure.json").write_text(
         json.dumps(structure, ensure_ascii=False, indent=1), encoding="utf-8"
     )
-    report = build_outline_report(structure, book_title)
+    report = build_outline_report_v2(structure, book_title)
     (build_dir / "outline.md").write_text(report, encoding="utf-8")
     return {"structure_file": str(build_dir / "structure.json"), "outline_file": str(build_dir / "outline.md"), "report": report}

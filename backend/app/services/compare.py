@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 
 from ..config import settings
-from .exporter import IMG_RE, _table_quality_gates, export_rebuilt
+from .exporter import IMG_RE, _img_rel, _table_quality_gates, export_rebuilt
 from .structure import check_section_continuity, load_batches
 
 RE_PAGE_RANGE = re.compile(r"p(\d+)-(\d+)")
@@ -24,7 +24,8 @@ def _iter_nodes(chapters: list[dict]):
     """深度遍历章节树节点（章 + 其 children，含特殊板块）。"""
     for ch in chapters:
         yield ch
-        yield from ch.get("children", [])
+        for sub in ch.get("children", []):
+            yield from _iter_nodes([sub])
 
 
 def _table_stats(lines: list[str]) -> dict:
@@ -52,7 +53,7 @@ def _image_stats(lines: list[str], md_dir: Path) -> dict:
     for line in lines:
         for m in IMG_RE.finditer(line):
             referenced += 1
-            rel = m.group(1)
+            rel = _img_rel(m)
             if rel in seen:
                 continue
             seen.add(rel)
@@ -102,7 +103,7 @@ def build_compare_report(book_id: int, book_title: str) -> dict:
                 "title": ch.get("title", ""),
                 "page_range": ch.get("page_range", ""),
                 "char_count": ch_chars,   # 章 + 子节合计
-                "image_count": int(ch.get("image_count", 0)),
+                "image_count": sum(int(n.get("image_count", 0)) for n in nodes),
                 "tables": ts,
             }
         )
@@ -187,6 +188,151 @@ def build_chapter_diff(book_id: int, book_title: str, chapter_no: int) -> dict:
         "raw_lines": len(a),
         "rebuilt_lines": len(b),
         "diff": diff,
+    }
+
+
+def _chapter_raw_text_v2(book_id: int, book_title: str, ch: dict, chapters: list[dict], chapter_no: int) -> str:
+    """P0-4 按章 raw 对照：用下一章起始页切边界，减少相邻章内容混入。
+
+    仍是批次级切分（批为 25 页粒度），但边界取 [本章起始页, 下一章起始页)。
+    """
+    page_range = ch.get("page_range", "")
+    m = RE_PAGE_RANGE.match(page_range or "")
+    if not m:
+        return ""
+    lo = int(m.group(1))
+    next_lo = None
+    if chapter_no < len(chapters):
+        m2 = RE_PAGE_RANGE.match(chapters[chapter_no].get("page_range", ""))
+        if m2:
+            next_lo = int(m2.group(1))
+    md_dir = settings.md_dir / f"b{book_id}_{book_title}"
+    parts: list[str] = []
+    for b in load_batches(md_dir):
+        if b["page_end"] < lo:
+            continue
+        if next_lo is not None and b["page_start"] >= next_lo:
+            continue
+        parts.append(b["text"])
+    return "\n".join(parts)
+
+
+def _diff_lines(a: list[str], b: list[str]) -> list[dict]:
+    """P0-4 行级 diff：先哈希切掉共同前后缀，只对变化区域跑 SequenceMatcher。"""
+    import hashlib
+
+    def _hashes(lines: list[str]) -> list[str]:
+        return [hashlib.md5(l.encode("utf-8")).hexdigest() for l in lines]
+
+    ha, hb = _hashes(a), _hashes(b)
+    pre = 0
+    while pre < min(len(ha), len(hb)) and ha[pre] == hb[pre]:
+        pre += 1
+    suf = 0
+    while suf < min(len(ha) - pre, len(hb) - pre) and ha[len(ha) - 1 - suf] == hb[len(hb) - 1 - suf]:
+        suf += 1
+
+    diff: list[dict] = []
+    if pre:
+        diff.append({"t": "eq", "n": pre})
+    mid_a = a[pre:len(a) - suf] if suf else a[pre:]
+    mid_b = b[pre:len(b) - suf] if suf else b[pre:]
+    sm = difflib.SequenceMatcher(a=mid_a, b=mid_b, autojunk=False)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            if i2 - i1 > 0:
+                diff.append({"t": "eq", "n": i2 - i1})
+        elif tag == "delete":
+            for i in range(i1, i2):
+                diff.append({"t": "del", "a": mid_a[i]})
+        elif tag == "insert":
+            for j in range(j1, j2):
+                diff.append({"t": "add", "b": mid_b[j]})
+        elif tag == "replace":
+            for i in range(i1, i2):
+                diff.append({"t": "del", "a": mid_a[i]})
+            for j in range(j1, j2):
+                diff.append({"t": "add", "b": mid_b[j]})
+    if suf:
+        diff.append({"t": "eq", "n": suf})
+    return diff
+
+
+def _diff_cache_path(book_id: int, book_title: str, chapter_no: int) -> Path:
+    return settings.build_dir / f"b{book_id}_{book_title}" / f"chapter_diff_{chapter_no}.json"
+
+
+def build_chapter_diff_v2(book_id: int, book_title: str, chapter_no: int) -> dict:
+    """P0-4 按章 raw vs rebuilt 行级 diff（v2：精切边界 + 哈希加速 + 落盘缓存）。
+
+    返回 {chapter, title, page_range, raw_lines, rebuilt_lines, diff}；
+    diff 元素：{t:"eq", n}（连续相同行合并计数）/ {t:"del", a} / {t:"add", b}。
+    """
+    structure_file = settings.build_dir / f"b{book_id}_{book_title}" / "structure.json"
+    if not structure_file.exists():
+        raise FileNotFoundError(f"结构重建产物缺失：{structure_file}")
+    structure = json.loads(structure_file.read_text(encoding="utf-8"))
+    chapters = structure.get("chapters", [])
+    if chapter_no < 1 or chapter_no > len(chapters):
+        raise ValueError(f"chapter 超出范围（1-{len(chapters)}）")
+    ch = chapters[chapter_no - 1]
+
+    rebuilt = export_rebuilt(book_id, book_title, chapter=chapter_no)
+    raw = _chapter_raw_text_v2(book_id, book_title, ch, chapters, chapter_no)
+    a = raw.splitlines()
+    b = rebuilt.splitlines()
+
+    cache_path = _diff_cache_path(book_id, book_title, chapter_no)
+    structure_mtime = int(structure_file.stat().st_mtime)
+    if cache_path.exists():
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if (
+                cached.get("structure_mtime") == structure_mtime
+                and cached.get("raw_lines") == len(a)
+                and cached.get("rebuilt_lines") == len(b)
+            ):
+                diff = cached.get("diff", [])
+                return {
+                    "book": book_title,
+                    "chapter": chapter_no,
+                    "title": ch.get("title", ""),
+                    "page_range": ch.get("page_range", ""),
+                    "raw_lines": len(a),
+                    "rebuilt_lines": len(b),
+                    "diff": diff,
+                    "cached": True,
+                }
+        except Exception:
+            pass
+
+    diff = _diff_lines(a, b)
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(
+            json.dumps(
+                {
+                    "structure_mtime": structure_mtime,
+                    "raw_lines": len(a),
+                    "rebuilt_lines": len(b),
+                    "diff": diff,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+    return {
+        "book": book_title,
+        "chapter": chapter_no,
+        "title": ch.get("title", ""),
+        "page_range": ch.get("page_range", ""),
+        "raw_lines": len(a),
+        "rebuilt_lines": len(b),
+        "diff": diff,
+        "cached": False,
     }
 
 
