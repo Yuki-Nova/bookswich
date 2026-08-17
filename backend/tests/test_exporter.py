@@ -49,6 +49,14 @@ def test_normalize_latex_delimiters():
     assert normalize_math("$P(a\\( \\int_{-\\infty}^{x}f(t)dt$") == "$P(a( \\int_{-\\infty}^{x}f(t)dt$"
 
 
+def test_normalize_adjacent_math_spaces():
+    """相邻行内公式间多余空格压平：$A$  $B$ → $A$ $B$；$$ 块级不受影响。"""
+    assert normalize_math("$A$  $B$ 相邻") == "$A$ $B$ 相邻"
+    # 块级公式（$$ 独占行）不被压平破坏
+    block = "$$\nE(X) = 1\n$$"
+    assert normalize_math(block) == block
+
+
 # ── 表格保留原样 ───────────────────────────────────────
 
 

@@ -109,6 +109,9 @@ def normalize_math(text: str) -> str:
             return "$$\n" + m.group(1).strip() + "\n$$"
         return "$" + m.group(2).strip() + "$"
 
+    # 相邻行内公式间多余空格压平：$A$  $B$ → $A$ $B$
+    # （`(?<!\$)(?!\$)` 排除 $$ 块级定界符，防把空块级公式压坏）
+    text = re.sub(r"(?<!\$)\$\s{2,}\$(?!\$)", "$ $", text)
     text = MATH_RE.sub(fix, text)
     text = text.replace(r"\(", "(").replace(r"\)", ")")
     return text
