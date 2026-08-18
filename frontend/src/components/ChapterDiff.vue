@@ -2,6 +2,7 @@
 // ChapterDiff.vue — 按章 raw vs rebuilt 行级 diff（2026-08-11 第二步）
 // eq 连续块折叠为计数行；del 红 / add 绿 逐行
 import { ref, watch } from 'vue'
+import { authFetch } from '../auth'
 
 const props = defineProps({
   bookId: Number,
@@ -23,7 +24,7 @@ watch(chapterNo, async (no) => {
   error.value = ''
   diff.value = null
   try {
-    const r = await fetch(`/api/books/${props.bookId}/compare/chapter/${no}`)
+    const r = await authFetch(`/api/books/${props.bookId}/compare/chapter/${no}`)
     const d = await r.json()
     if (!r.ok) throw new Error(d.detail || '加载失败')
     diff.value = d

@@ -2,6 +2,7 @@
 // BookDetail.vue — workspace 中选中教材的详情：标题/状态/进度 + 导出工具栏 + 质检/对比/并排 tab（2026-08-14 重构）
 import { ref, watch } from 'vue'
 import ComparePanel from './ComparePanel.vue'
+import { authFetch, authedUrl } from '../auth'
 
 const props = defineProps({
   book: Object,
@@ -36,7 +37,7 @@ watch(() => props.book?.id, async (id) => {
   actionMsg.value = null
   if (!id) return
   try {
-    const r = await fetch(`/api/books/${id}/chapters`)
+    const r = await authFetch(`/api/books/${id}/chapters`)
     const d = await r.json()
     chapters.value = d.chapters || []
   } catch { /* 未重建的书忽略 */ }
@@ -56,7 +57,7 @@ async function importObsidian(b) {
   importing.value = true
   actionMsg.value = null
   try {
-    const r = await fetch(`/api/books/${b.id}/import-obsidian`, { method: 'POST' })
+    const r = await authFetch(`/api/books/${b.id}/import-obsidian`, { method: 'POST' })
     const d = await r.json()
     if (!r.ok) throw new Error(d.detail || '导入失败')
     actionMsg.value = { text: `✅ 已导入 Obsidian：${d.files} 个文件（图片转 OSS 外链）`, ok: true }
@@ -73,7 +74,7 @@ async function deleteBook(b) {
   deleting.value = true
   actionMsg.value = null
   try {
-    const r = await fetch(`/api/books/${b.id}`, { method: 'DELETE' })
+    const r = await authFetch(`/api/books/${b.id}`, { method: 'DELETE' })
     const d = await r.json()
     if (!r.ok) throw new Error(d.detail || '删除失败')
     emit('deleted')
@@ -106,9 +107,9 @@ async function deleteBook(b) {
           <option :value="0">整本</option>
           <option v-for="c in chapters" :key="c.no" :value="c.no">{{ c.no }}. {{ c.title }}</option>
         </select>
-        <a class="btn" :href="chapterHref(book)" download>⬇ 下载 ZIP</a>
-        <a class="btn ghost" :href="`/api/books/${book.id}/export?format=raw`" download title="原始 OCR 合并版">原</a>
-        <a class="btn ghost" :href="`/api/books/${book.id}/export?format=obsidian`" download title="Obsidian 版（自包含本地图）">📓 Obsidian</a>
+        <a class="btn" :href="authedUrl(chapterHref(book))" download>⬇ 下载 ZIP</a>
+        <a class="btn ghost" :href="authedUrl(`/api/books/${book.id}/export?format=raw`)" download title="原始 OCR 合并版">原</a>
+        <a class="btn ghost" :href="authedUrl(`/api/books/${book.id}/export?format=obsidian`)" download title="Obsidian 版（自包含本地图）">📓 Obsidian</a>
         <button v-if="settings?.obsidian_vault_configured" class="btn purple" :disabled="importing"
                 @click="importObsidian(book)">
           {{ importing ? '导入中…' : '📥 导入' }}

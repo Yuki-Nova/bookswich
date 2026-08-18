@@ -7,6 +7,7 @@ import markedKatex from 'marked-katex-extension'
 import DOMPurify from 'dompurify'
 import PdfViewer from './PdfViewer.vue'
 import 'katex/dist/katex.min.css'
+import { authFetch, authedUrl } from '../auth'
 
 // KaTeX 公式渲染：$...$ 行内 / $$...$$ 块级（坏公式不崩页面，原样展示）
 // nonStandard: 中文教材公式常紧贴中文/换行（`即$t$分布`、列表项内 $(G→F→t)$），
@@ -53,7 +54,7 @@ watch(chapterNo, async (no) => {
   error.value = ''
   md.value = ''
   try {
-    const r = await fetch(`/api/books/${props.bookId}/compare/chapter/${no}?as=markdown`)
+    const r = await authFetch(`/api/books/${props.bookId}/compare/chapter/${no}?as=markdown`)
     const d = await r.json()
     if (!r.ok) throw new Error(d.detail || '加载失败')
     md.value = d.markdown || ''
@@ -77,10 +78,10 @@ const pdfPage = computed(() => {
 })
 
 const pdfUrl = computed(() =>
-  props.bookId ? `/api/books/${props.bookId}/pdf` : ''
+  props.bookId ? authedUrl(`/api/books/${props.bookId}/pdf`) : ''
 )
 
-// markdown 渲染：相对图片路径 → 后端 media 端点；URL 原样
+// markdown 渲染：相对图片路径 → 后端 media 端点（附 token query）；URL 原样
 const renderedHtml = computed(() => {
   if (!md.value) return ''
   marked.use({
@@ -88,7 +89,7 @@ const renderedHtml = computed(() => {
       image({ href, title, text }) {
         let src = href || ''
         if (src && !/^(https?:|data:)/i.test(src)) {
-          src = `/api/books/${props.bookId}/media/${src.replace(/^\.?\//, '')}`
+          src = authedUrl(`/api/books/${props.bookId}/media/${src.replace(/^(\.\/|\/)/, '')}`)
         }
         const t = title ? ` title="${title}"` : ''
         return `<img src="${src}" alt="${text || ''}"${t} loading="lazy">`

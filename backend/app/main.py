@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from .api.routes import router
 from .config import settings
 from .db import init_db, recover_stale_parsing
+from .services.auth import has_auth_configured, is_token_valid
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,16 +39,18 @@ app.add_middleware(
 
 @app.middleware("http")
 async def require_api_token(request, call_next):
-    """可选鉴权：配置 API_TOKEN 后，所有 /api 请求须带 X-Auth-Token 头或 ?token= 参数。
+    """可选鉴权（B5-A）：配置 web_password / api_token 后，所有 /api 请求须带有效 token。
 
-    默认未配置时零行为变化（本地/内网零摩擦）。公开部署建议另配 nginx basic auth
-    兜住整个站点（含静态资源），本 token 供插件/程序化调用使用。
+    - 未配置任何鉴权 → 零行为变化（本地/内网零摩擦）
+    - 校验通过任意一层：api_token（程序调用，X-Auth-Token 头 / ?token=）
+      或 web 会话 token（前端登录后由 /api/auth/login 签发，同样是 X-Auth-Token 头）
+    - /api/auth/login 本身放行（登录入口）
     """
-    token = settings.api_token
-    if token and request.url.path.startswith("/api"):
-        supplied = request.headers.get("x-auth-token") or request.query_params.get("token")
-        if supplied != token:
-            return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+    if request.url.path.startswith("/api") and not request.url.path.startswith("/api/auth/login"):
+        if has_auth_configured():
+            supplied = request.headers.get("x-auth-token") or request.query_params.get("token")
+            if not is_token_valid(supplied):
+                return JSONResponse(status_code=401, content={"detail": "unauthorized"})
     return await call_next(request)
 
 

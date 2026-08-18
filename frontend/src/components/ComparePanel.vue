@@ -4,6 +4,7 @@
 import { ref, watch } from 'vue'
 import ChapterDiff from './ChapterDiff.vue'
 import SideBySideView from './SideBySideView.vue'
+import { authFetch } from '../auth'
 
 const props = defineProps({
   bookId: Number,
@@ -28,7 +29,7 @@ watch(() => props.bookId, async (id) => {
   error.value = ''
   report.value = null
   try {
-    const r = await fetch(`/api/books/${id}/compare`)
+    const r = await authFetch(`/api/books/${id}/compare`)
     const d = await r.json()
     if (!r.ok) throw new Error(d.detail || '加载失败')
     report.value = d

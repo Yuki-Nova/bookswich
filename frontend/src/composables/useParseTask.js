@@ -1,6 +1,7 @@
 // useParseTask.js — 解析任务共享状态（2026-08-11 L-4：从 UploadPanel 上移）
 // App 持有本 composable，SidebarPanel（实时进度）与 UploadPanel（触发按钮）共用同一进度源。
 import { reactive, ref, watch } from 'vue'
+import { authFetch } from '../auth'
 
 export function useParseTask(booksRef, refreshBooks, refreshQuota) {
   const parsingId = ref(null)
@@ -19,7 +20,7 @@ export function useParseTask(booksRef, refreshBooks, refreshQuota) {
     let d
     try {
       // 超时 + 失败保护：后端重启/网络抖动不中断轮询（挂起则 15s 后重试）
-      const r = await fetch(`/api/books/${parsingId.value}`, { signal: AbortSignal.timeout(15000) })
+      const r = await authFetch(`/api/books/${parsingId.value}`, { signal: AbortSignal.timeout(15000) })
       d = await r.json()
     } catch (e) {
       parseMsg.value = { text: `⚠ 进度刷新失败，自动重试：${e.message}`, ok: false }
@@ -73,7 +74,7 @@ export function useParseTask(booksRef, refreshBooks, refreshQuota) {
       : null
     progress.value = b.parse_progress || ''
     try {
-      const r = await fetch(`/api/books/${b.id}/parse`, { method: 'POST' })
+      const r = await authFetch(`/api/books/${b.id}/parse`, { method: 'POST' })
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail || '启动失败')
       schedulePoll()

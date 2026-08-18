@@ -3,8 +3,11 @@ import { computed, onMounted, ref } from 'vue'
 import SidebarPanel from './components/SidebarPanel.vue'
 import UploadPanel from './components/UploadPanel.vue'
 import BookDetail from './components/BookDetail.vue'
+import LoginPanel from './components/LoginPanel.vue'
 import { useParseTask } from './composables/useParseTask'
+import { authFetch, logout, isLoggedIn } from './auth'
 
+const loggedIn = ref(isLoggedIn())
 const books = ref([])
 const quota = ref(null)
 const settings = ref(null)
@@ -12,9 +15,22 @@ const backendDown = ref(false)
 const selectedBook = ref(null)   // 当前在 workspace 打开的教材
 const railCollapsed = ref(false)  // 教材库 rail 是否折叠（MinerU 式可折叠边栏）
 
+function onLoggedIn() {
+  loggedIn.value = true
+  refreshBooks(); refreshQuota(); refreshSettings()
+}
+
+function onLogout() {
+  logout()
+  loggedIn.value = false
+  books.value = []
+  quota.value = null
+  selectedBook.value = null
+}
+
 async function refreshBooks() {
   try {
-    const r = await fetch('/api/books')
+    const r = await authFetch('/api/books')
     const d = await r.json()
     books.value = d.books || []
     backendDown.value = false
@@ -23,7 +39,7 @@ async function refreshBooks() {
 
 async function refreshQuota() {
   try {
-    const r = await fetch('/api/quota')
+    const r = await authFetch('/api/quota')
     quota.value = await r.json()
     backendDown.value = false
   } catch { backendDown.value = true }
@@ -31,7 +47,7 @@ async function refreshQuota() {
 
 async function refreshSettings() {
   try {
-    const r = await fetch('/api/settings')
+    const r = await authFetch('/api/settings')
     settings.value = await r.json()
     backendDown.value = false
   } catch { backendDown.value = true }
@@ -49,11 +65,14 @@ function openUpload() {
 // 解析中的书（顶栏进度徽标用）
 const busyBook = computed(() => (books.value || []).find(b => b.parse_status === 'parsing'))
 
-onMounted(() => { refreshBooks(); refreshQuota(); refreshSettings() })
+onMounted(() => {
+  if (loggedIn.value) { refreshBooks(); refreshQuota(); refreshSettings() }
+})
 </script>
 
 <template>
-  <div>
+  <LoginPanel v-if="!loggedIn" @logged-in="onLoggedIn" />
+  <div v-else>
     <!-- 顶部导航 -->
     <header class="nav">
       <div class="nav-inner">
@@ -94,6 +113,7 @@ onMounted(() => { refreshBooks(); refreshQuota(); refreshSettings() })
             <span class="dot"></span>Obsidian 已连接
           </span>
           <button class="btn sm" @click="openUpload">＋ 上传 PDF</button>
+          <button class="btn ghost sm" @click="onLogout" title="退出登录">退出</button>
         </div>
       </div>
     </header>

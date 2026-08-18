@@ -26,6 +26,26 @@ MAX_UPLOAD_MB = 200
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 
+class LoginBody(BaseModel):
+    password: str
+
+
+@router.post("/auth/login")
+async def web_login(body: LoginBody):
+    """B5-A 网页登录：校验密码签发会话 token。
+
+    仅当配置了 web_password 时有效；密码正确返回 {token}（前端存 localStorage，
+    后续 /api 请求带 X-Auth-Token 头）。未配置 web_password 时始终 401。
+    """
+    if not settings.web_password:
+        raise HTTPException(401, "未配置 web_password，无登录")
+    if body.password != settings.web_password:
+        raise HTTPException(401, "密码错误")
+    from ..services.auth import session_token
+
+    return {"token": session_token()}
+
+
 def _safe_stem(name: str) -> str:
     """文件名 stem 安全化：取 basename、去扩展名、替换非法字符（<>:"/\\|?*）。
 
@@ -272,6 +292,12 @@ async def start_parse(book_id: int):
             )
             ok = not result["errors"]
             final_status = "parsed" if ok else "failed"
+            # B2：解析失败写入可读原因（前端/用户能定位问题，而非静默 failed）
+            parse_error = ""
+            if result["errors"]:
+                parse_error = "；".join(result["errors"][:5])
+                if len(result["errors"]) > 5:
+                    parse_error += f" …（共 {len(result['errors'])} 条）"
 
             # 解析成功后自动跑结构重建（生成 structure.json，chapters/按章导出依赖它）
             if ok:
@@ -286,11 +312,13 @@ async def start_parse(book_id: int):
 
             with get_conn() as conn:
                 conn.execute(
-                    "UPDATE books SET parse_status=?, parse_progress=?, quota_used=? WHERE id=?",
+                    "UPDATE books SET parse_status=?, parse_progress=?, quota_used=?, "
+                    "parse_error=? WHERE id=?",
                     (
                         final_status,
                         f"{len(result['batch_files'])}/{result['batches_total']}",
                         result["pages_used"],
+                        parse_error,
                         book_id,
                     ),
                 )
@@ -299,7 +327,9 @@ async def start_parse(book_id: int):
             try:
                 with get_conn() as conn:
                     conn.execute(
-                        "UPDATE books SET parse_status='failed' WHERE id=?", (book_id,)
+                        "UPDATE books SET parse_status='failed', parse_error='解析线程崩溃，详见服务端日志' "
+                        "WHERE id=?",
+                        (book_id,),
                     )
             except Exception:
                 logger.exception("failed to mark book %s as failed", book_id)

@@ -1,6 +1,7 @@
 <script setup>
 // UploadPanel.vue — workspace 空态：上传 hero + 拖拽区（2026-08-14 重构）
 import { ref } from 'vue'
+import { getToken } from '../auth'
 
 const props = defineProps({ quota: Object })
 const emit = defineEmits(['changed'])
@@ -30,6 +31,8 @@ async function upload() {
     const d = await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
       xhr.open('POST', '/api/books/upload')
+      const tok = getToken()
+      if (tok) xhr.setRequestHeader('X-Auth-Token', tok)
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) progress.value = Math.round((e.loaded / e.total) * 100)
       }
