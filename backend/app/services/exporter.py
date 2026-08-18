@@ -242,8 +242,14 @@ def _table_quality_gates(table_html: str) -> tuple[bool, str]:
     return True, "ok"
 
 
-def _node_to_md(node: dict) -> str:
-    """章节树节点 → markdown（表格原样保留 + 公式规范化 + 深度清洗）。"""
+def _node_to_md(node: dict, tables: str = "html") -> str:
+    """章节树节点 → markdown（表格默认全 HTML 保留 + 公式规范化 + 深度清洗）。
+
+    tables 参数（U 表格大一统，2026-08-18）：
+      "html"（默认）→ 所有表格保留原生 HTML（结构保真，表内 $..$ 由
+        Obsidian html-table-math 插件渲染公式）
+      "md"        → 走 6 道门禁：通过转 Markdown 表格，未通过保留 HTML
+    """
     parts: list[str] = []
     if node.get("board"):
         parts.append(f"\n## [板块] {node['title']}\n")
@@ -255,19 +261,24 @@ def _node_to_md(node: dict) -> str:
         for line in body[1:]:
             stripped = line.strip()
             if stripped.startswith("<table"):
-                # 表格：6 道质量门禁通过 → 转 Markdown（公式可渲染）；
-                # 未通过 → 保留 HTML 原样（格式永远正确）
-                # 表格内容不参与深度清洗（CLAUDE.md 约定 #1）
-                ok, reason = _table_quality_gates(stripped)
-                if ok:
-                    parts.append(format_table_md(stripped))
+                # 表格：默认全 HTML（公式由 html-table-math 插件渲染，结构零丢失）；
+                # tables="md" 时走门禁转换（旧行为，可选）
+                if tables == "md":
+                    ok, reason = _table_quality_gates(stripped)
+                    if ok:
+                        parts.append(format_table_md(stripped))
+                    else:
+                        formatted = format_html_table(stripped)
+                        parts.append(
+                            "\n"
+                            + "\n".join(normalize_math(l) for l in formatted.splitlines())
+                            + "\n"
+                        )
                 else:
                     formatted = format_html_table(stripped)
-                    # 表格前后补空行（与 format_table_md 的 return 对称）：
-                    # 否则表格行紧贴正文时，CommonMark 的 HTML 块（以 <table
-                    # 开头的类型 6 块）延续到第一个空行才结束，</table> 后的
-                    # 正文行/下一行 # 标题会被吞进 HTML 块，Obsidian/Typora
-                    # 不识别（A1 已确认问题，2026-08-18）
+                    # 表格前后补空行：否则表格行紧贴正文时，CommonMark 的
+                    # HTML 块延续到第一个空行才结束，</table> 后的正文行/标题
+                    # 会被吞进 HTML 块（A1 已确认，2026-08-18）
                     parts.append(
                         "\n"
                         + "\n".join(normalize_math(l) for l in formatted.splitlines())
@@ -277,17 +288,23 @@ def _node_to_md(node: dict) -> str:
                 # 非表格行：图片引用归一化 → 公式规范化 → 深度清洗
                 parts.append(clean_markdown(normalize_math(normalize_html_images(line))))
     for sub in node.get("children") or []:
-        parts.append(_node_to_md(sub))
+        parts.append(_node_to_md(sub, tables))
     # 空行折叠放在节点级 join 后：clean_markdown 逐行调用无跨行上下文，
     # 行间 3+ 连续空行只能在这里统一压平
     return re.sub(r"\n{3,}", "\n\n", "\n".join(parts))
 
 
-def export_rebuilt(book_id: int, book_title: str, chapter: int | None = None) -> str:
+def export_rebuilt(
+    book_id: int,
+    book_title: str,
+    chapter: int | None = None,
+    tables: str = "html",
+) -> str:
     """从 structure.json 生成结构重建后的完整 markdown。
 
     标题按层级打标（# 章 / ## 节 / ### 小节），前置部分已过滤，
-    表格保留 MinerU 原样（纯排版换行），公式定界符规范化。
+    表格默认全 HTML 保留（tables="html"，公式由 Obsidian html-table-math 插件渲染），
+    或 tables="md" 走门禁转换（旧行为，可选）。
     chapter 指定时只导出第 N 章（从 1 开始）。
     """
     structure_file = settings.build_dir / f"b{book_id}_{book_title}" / "structure.json"
@@ -307,7 +324,7 @@ def export_rebuilt(book_id: int, book_title: str, chapter: int | None = None) ->
         parts = [f"# 《{book_title}》", "", f"> 由 bookswich 结构重建生成（覆盖 {pages}）", ""]
 
     for ch in chapters:
-        parts.append(_node_to_md(ch))
+        parts.append(_node_to_md(ch, tables))
     # 头部与首章拼接处可能产生 3+ 空行，统一折叠
     return re.sub(r"\n{3,}", "\n\n", "\n".join(parts))
 
@@ -401,7 +418,12 @@ def _fallback_full_chapter(book_id: int, book_title: str, pages_covered: str) ->
     }
 
 
-def export_obsidian_zip(book_id: int, book_title: str, image_mode: str = "local") -> bytes:
+def export_obsidian_zip(
+    book_id: int,
+    book_title: str,
+    image_mode: str = "local",
+    tables: str = "html",
+) -> bytes:
     """Obsidian 版导出：按章拆分 + MOC 总览 + 各章独立 images/（或 OSS 外链）。
 
     zip 内部结构（性能友好：每章 30~80KB 秒开，图片按章分摊）：
@@ -441,7 +463,7 @@ def export_obsidian_zip(book_id: int, book_title: str, image_mode: str = "local"
             ch_title = ch["title"]
             folder = f"{i:02d}_{_sanitize_filename(ch_title)}"
             fname = f"{_sanitize_filename(ch_title)}.md"
-            md_text = _node_to_md(ch)
+            md_text = _node_to_md(ch, tables)
             toc.append(f"- [[{folder}/{_sanitize_filename(ch_title)}|{ch_title}]]")
             if uploader is not None:
                 md_text = _to_oss_links(md_text, uploader, book_folder, src_md_dir)

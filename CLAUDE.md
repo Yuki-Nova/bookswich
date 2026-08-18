@@ -8,11 +8,17 @@
 
 > ⚠ **2026-08-06 去 RAG 化（用户决策）**：原 RAG 知识库问答功能（检索/向量/DeepSeek/评测）已全部移除，知识库路线改为 **Hermes + Obsidian**（Obsidian 双向链接建库，Hermes 的 obsidian skill 负责笔记操作）。本项目**不再做任何 RAG/问答**，只保留「解析 + 格式修正 + 下载」。
 
-> 📐 **2026-08-10 表格智能转换（用户拍板：能转的必是规整表格）**：`exporter.py` 的 `_table_quality_gates`（6 道门禁：
+> 📐 **2026-08-10 表格智能转换（门禁制）（2026-08-18 U 阶段已退役为可选）**：`exporter.py` 的 `_table_quality_gates`（6 道门禁：
 > 闭合配对 / 无 colspan·rowspan / 无游离文本 / 行列规整 / 2~8 列 / 2~20 行 / 单格 ≤300 字符）通过 → `format_table_md`
 > 转 Markdown 表格（`<eq>`→`$` 含实体解码、公式内 `|`→`\vert`、公式外 `|`→`\|`、表格前后空行分隔）；
 > 未通过 → 保留 MinerU HTML 原样。**禁止为公式渲染牺牲表格格式**——历史教训：HTML→MD 全量转换导致
-> 数据列表/合并单元格/多分布并表列错乱（2026-08-09 用户暴怒回退）。实测 349 表 → 176 转（列零错乱）+ 173 保。
+> 数据列表/合并单元格/多分布并表列错乱（2026-08-09 用户暴怒回退）。
+>
+> 🎯 **2026-08-18 表格大一统（U 阶段，用户拍板：全 HTML）**：`_node_to_md`/`export_rebuilt`/`export_obsidian_zip`
+> 加 `tables="html"|"md"` 参数，**默认 `tables="html"`**——所有表格保留原生 HTML（结构 100% 保真含合并单元格/宽表），
+> 表内公式以 `$..$` 定界符输出，由 Obsidian 社区插件 **html-table-math**（MIT，装在用户 vault，不在仓库）渲染；
+> 门禁转换降级为可选 `tables="md"`。历史教训依旧：**即使 tables="md"，也绝不牺牲表格格式换公式渲染**（合并表始终保留 HTML）。
+> 运行时依赖：Obsidian 侧需装 html-table-math 插件才有 HTML 表内公式渲染。详见 docs/TECH.md §1.9。
 > **2026-08-17 单元格净化链**：`format_table_md` 单元格处理 = 实体解码 → 公式间双空格压平（`$A$  $B$`→`$A$ $B$`）
 > → `normalize_math` 定界符净化 → 竖线转义；`normalize_math` 内置相邻公式压平（`(?<!\$)\$\s{2,}\$(?!\$)`，
 > 排除 `$$` 块级），MD 转换与 HTML 保留两条路径统一受益。

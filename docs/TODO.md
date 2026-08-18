@@ -178,6 +178,19 @@ PDF → [MinerU 分批解析 25页/批 + 缓存 + 配额] → [结构重建 规�
   - `docs/PRODUCTION.md`：模板（原因/版本/是否重建/是否重导/验证/例外）+ 2026-08-18 与 08-17 两条记录；
     明确不记录密码/token/secret
 
+### U. 表格大一统（全 HTML，2026-08-18）
+
+- [x] **U1 / P1** 确认全 HTML 后公式可渲染（html-table-math 插件前提）
+  - 审计保留表：`<eq>` 残留=0、`$` 定界符全配对、82/173 表含公式（插件可渲染）→ 前提成立
+- [x] **U2 / P1** exporter 默认全 HTML（`_node_to_md`/`export_rebuilt` 加 `tables="html"|"md"` 参数）
+  - 默认 `tables="html"`：所有表保留原生 HTML（结构保真 + 表内公式由 Obsidian html-table-math 插件渲染）；
+    `tables="md"` 保留旧门禁转换（可选）
+- [x] **U3 / P1** 测试改造：分布表测试改测全 HTML + 新增 md 模式门禁测试（pytest 176 全绿）
+- [x] **U4 / P1** 真实 b1 验证：349 表 100% HTML（原 50% MD→0%）、`<eq>`=0、`$` 配对、
+  138 合并表结构完整（rowspan/colspan 无损）
+- [ ] **U5 / P2** 文档同步（PRODUCTION/TECH/TODO/CLAUDE.md）+ 提交
+  - ⚠️ **Obsidian 侧需装 html-table-math 插件**（社区插件，MIT）才能渲染 HTML 表内公式——这是大统一的运行时依赖
+
 ### E. 远期能力
 
 - [ ] **E1 / P2** 生成章节知识点 Markdown 大纲，不引入 RAG 或向量库

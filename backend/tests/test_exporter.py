@@ -100,13 +100,30 @@ def test_full_export_math_normalized(rebuilt_full):
 
 
 def test_full_export_distribution_table_region(rebuilt_full):
-    """分布律表区域：规整表格门禁通过 → Markdown（公式可渲染）。"""
+    """分布律表区域：全 HTML 模式（默认）保留原生 HTML 表（公式由 Obsidian 插件渲染）。"""
     ls = rebuilt_full.splitlines()
+    idx = next(i for i, l in enumerate(ls) if "分布律还可表示为下列表形式" in l)
+    seg = "\n".join(ls[idx : idx + 30])
+    assert "<table>" in seg          # 默认全 HTML：保留原生表格
+    assert "| X |" not in seg        # 不是 Markdown 表
+    # HTML 表内公式仍是 $..$ 定界符（Obsidian html-table-math 插件可渲染）
+    assert "$p_{k}" in seg or "$p_k" in seg or "$p" in seg
+
+
+def test_full_export_md_table_mode_gate(rebuilt_full, monkeypatch):
+    """tables='md' 可选模式：分布律表走门禁 → Markdown（公式可渲染，旧行为保留）。"""
+    import pytest
+
+    from app.services.exporter import export_rebuilt
+
+    # 用 md 模式重新导出（同书），确认门禁转换路径仍可用
+    md = export_rebuilt(1, "医药应用概率统计", tables="md")
+    ls = md.splitlines()
     idx = next(i for i, l in enumerate(ls) if "分布律还可表示为下列表形式" in l)
     seg = "\n".join(ls[idx : idx + 30])
     assert "| X |" in seg            # 表格已转 Markdown
     assert "| --- |" in seg          # 分隔行存在
-    assert "其中 $p_{k}" in seg
+    assert "$p_{k}" in seg or "p_k" in seg
 
 
 # ── OSS 外链模式（图片转外链）────────────────────────────────

@@ -14,8 +14,12 @@
 > 🔄 **2026-08-07 Obsidian 同步升级为 WebDAV**：vault 走 wsgidav + Nginx 反代（如 `https://webdav.example.com/`），
 > Obsidian Remotely Save 多端自动同步；bookswich 服务器端导入直接写 WebDAV 同步目录（详见 1.2 节）。
 >
-> 📐 **2026-08-10 表格智能转换（门禁制）**：6 道质量门禁通过 → HTML 表格转 Markdown（表格内公式可渲染）；
+> 📐 **2026-08-10 表格智能转换（门禁制）（已退役，见下）**：6 道质量门禁通过 → HTML 表格转 Markdown（表格内公式可渲染）；
 > 未通过 → 保留 HTML 原样。详见 1.3 节。
+>
+> 🎯 **2026-08-18 表格大一统（U 阶段，全 HTML）**：exporter 默认 `tables="html"`——所有表格保留原生 HTML
+> （结构 100% 保真含合并单元格），表内公式以 `$..$` 定界符输出，由 Obsidian 社区插件 **html-table-math** 渲染。
+> 门禁转换降级为可选 `tables="md"`（旧行为保留在函数签名，不再默认执行）。详见 1.9 节。
 
 > 📊 **2026-08-10 配额模型双维度化**：MinerU 配额按「优先页数 1000/日 + 文件数 5000/日」双维度记账；
 > 优先不足排队不中断、文件数满额才中断；详见 2.1 节。
@@ -232,7 +236,7 @@ kept_reasons,kept_merged,kept_cell_too_long}`——被拦截公式表的原因�
   （`data/build_golden_samples.json`），`--update` 更新/默认校验；`tests/test_golden_samples.py`（2 用例）
   作为「结构/导出规则修改后防退化」的入口。
 
-**测试基线（2026-08-18，含 C5）**：后端 pytest 175 / 前端 vitest 18 / 前端 build+verify_build ✓ / Playwright 冒烟 6/6（console error·pageerror·HTTP 5xx 全零）。
+**测试基线（2026-08-18，含 C5 + U）**：后端 pytest 176 / 前端 vitest 18 / 前端 build+verify_build ✓ / Playwright 冒烟 6/6（console error·pageerror·HTTP 5xx 全零）。
 
 ## 1.8 运维自动化（2026-08-18，D1-D5）
 
@@ -259,6 +263,28 @@ kept_reasons,kept_merged,kept_cell_too_long}`——被拦截公式表的原因�
   - 「已知认证 401」（错误密码等预期 401，浏览器在 console 记 error）**透明归类**到 `known_auth_401` 单独列出，不计硬失败、绝不静默。
   - 用法：`$env:BOOKSWICH_WEB_PASS='...'` 后 `.venv\Scripts\python.exe scripts/smoke_playwright.py`；退出码 0/1/2。
   - 实测生产（2026-08-18）：阶段 6/6 全过，console error ×0、pageerror ×0、HTTP 5xx ×0（唯一 401 为错误密码登录的预期响应，已归类列出）。
+
+## 1.9 表格大一统（2026-08-18，U 阶段）
+
+**目标**：消灭"转 MD vs 保 HTML"的黑箱/复杂性，统一以**原生 HTML** 为表格最终交付形态。
+
+**动机**：门禁转换（`_table_quality_gates` → `format_table_md`）成功率是黑箱、门禁 6 道规则复杂度高、
+"半 MD 半 HTML"将来难大一统。而 Obsidian 社区插件 **html-table-math**（MIT）能渲染 HTML 表格单元格内的
+`$..$`/`$$..$$`——因此 HTML 表已同时具备「结构保真（含合并单元格）+ 公式可渲染」，成为完备形态。
+
+**实施**：
+- `_node_to_md(node, tables="html")`、`export_rebuilt(..., tables="html")`、`export_obsidian_zip(..., tables="html")`
+  默认 `tables="html"`：所有 `<table>` 保留原生 HTML（`format_html_table` 纯排版换行 + 逐行 `normalize_math` 归一化 `$` 定界符）。
+- `tables="md"` 保留旧门禁转换（`_table_quality_gates` + `format_table_md`）为**可选参数**，不再默认执行。
+- 表格前后补空行逻辑（A1）沿用，避免 HTML 块吞掉后续标题/正文。
+
+**验证**：
+- b1（医药应用概率统计）默认导出：349 表 **100% HTML**（原 50% MD→0%）；`<eq>` 残留 0、`$` 定界符全配对；
+  138 合并表结构完整（rowspan/colspan 无损）；161 表含公式（插件可渲染）。
+- `tables="md"` 模式：分布表转 MD（门禁路径仍可用）；合并表无论模式均保留 HTML（MD 无合并语义）。
+- pytest 176 / test_exporter 16 用例（含新增 md 模式测试）。
+
+**运行时依赖**：Obsidian 侧需安装社区插件 **html-table-math**（不在仓库内，用户 vault `.obsidian/plugins/`）。
 
 ## 2. 核心流程
 
