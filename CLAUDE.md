@@ -49,7 +49,7 @@ bookswich/
 │   │       ├── mineru_client.py # 分批解析 + 落盘缓存 + 配额记账(quota.json)
 │   │       ├── structure.py     # 规则法结构重建（核心模块）
 │   │       └── exporter.py      # 导出 rebuilt/raw/按章 + 表格门禁转换（format_table_md/_table_quality_gates）
-│   ├── tests/                   # pytest（37 用例）
+│   ├── tests/                   # pytest（175 用例）
 │   │   ├── conftest.py          # 共享 fixture（rebuilt_full 全书导出）
 │   │   ├── test_exporter.py     # 导出/公式规范化/OSS 外链
 │   │   ├── test_structure_arabic.py  # 阿拉伯数字章/节标题识别
@@ -128,7 +128,7 @@ bookswich/
 # 前端（frontend/ 目录）
 npm install --registry=https://registry.npmmirror.com   # 国内源
 npm run dev        # http://localhost:5173
-npm run build      # 前端门禁，改动后必须跑
+npm run verify:build   # 前端门禁（vite build + verify_build 产物检查），改动后必须跑
 
 # 手动跑结构重建/导出（backend/ 目录，.venv 内）
 .venv\Scripts\python.exe -c "from app.services import structure; print(structure.run(1, '医药应用概率统计'))"
@@ -167,5 +167,5 @@ npm run build      # 前端门禁，改动后必须跑
 
 - 功能开发先出详细计划（写入 docs/TODO.md，含 P0~P2 优先级、里程碑、风险），用户批准后再动手
 - 新工具/爬虫类项目倾向在项目根目录另建独立文件夹
-- 改动后端后跑 pytest；改动前端后跑 `npm run build`
+- 改动后端后跑 pytest；改动前端后跑 `npm run verify:build`（vite build + 构建产物门禁）
 - 验证用真实数据（如《医药应用概率统计》解析/导出），不能只查服务状态

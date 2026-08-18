@@ -232,7 +232,7 @@ kept_reasons,kept_merged,kept_cell_too_long}`——被拦截公式表的原因�
   （`data/build_golden_samples.json`），`--update` 更新/默认校验；`tests/test_golden_samples.py`（2 用例）
   作为「结构/导出规则修改后防退化」的入口。
 
-**测试基线（2026-08-18）**：后端 pytest 172 / 前端 vitest 11 / 前端 build ✓ / Playwright 冒烟 6/6。
+**测试基线（2026-08-18，含 C5）**：后端 pytest 175 / 前端 vitest 18 / 前端 build+verify_build ✓ / Playwright 冒烟 6/6（console error·pageerror·HTTP 5xx 全零）。
 
 ## 1.8 运维自动化（2026-08-18，D1-D5）
 
