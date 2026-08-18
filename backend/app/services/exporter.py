@@ -131,10 +131,13 @@ def format_table_md(table_html: str) -> str:
     仅对通过 `_table_quality_gates` 的规整表格调用：
     1. `<eq>...</eq>` → `$...$`（html.unescape 解码 `&lt;`/`&gt;` 实体，
        否则 LaTeX 把 `&` 当列分隔符报 misplace &）
-    2. 单元格竖线转义：公式内 `|` → `\vert `（LaTeX 数学模式语义正确），
+    2. 单元格竖线转义：公式内 `|` → `\\vert `（LaTeX 数学模式语义正确），
        公式外 `|` → `\\|`（Markdown 转义）——否则条件概率 P(A|B) 切断表格列
     3. `<tr>/<td>` → `| cell | cell |` + `| --- |` 分隔行；
-       单元格文本同时做 HTML 实体解码（补齐 <eq> 之外的 &gt;/&lt;/&amp; 残留）
+       单元格文本处理链：HTML 实体解码 → `<img src="images/x">` 归一化为
+       `![](...)`（2026-08-18 A5 实测 b6 暴露：单元格内 <img> 残留，
+       Obsidian/Typora 虽可渲染但不标准）→ 公式间双空格压平 → 定界符净化
+       → 竖线转义
     """
     import html as html_mod
     import re
@@ -157,15 +160,20 @@ def format_table_md(table_html: str) -> str:
                 out.append(part.replace("|", r"\|"))
         return "".join(out)
 
-    # 3. 行/单元格 → Markdown（单元格文本：实体解码 → 公式间双空格压平 →
-    #    定界符净化 → 竖线转义）
+    # 3. 行/单元格 → Markdown（实体解码 → 图片归一化 → 双空格压平 → 净化 → 竖线转义）
     rows = re.findall(r"<tr>(.*?)</tr>", table_html, re.S)
     md_rows: list[str] = []
     for row in rows:
         cells = [
             _escape_pipes(
                 normalize_math(
-                    re.sub(r"\$\s{2,}\$", "$ $", html_mod.unescape(c.strip().replace("\n", " ")))
+                    normalize_html_images(
+                        re.sub(
+                            r"\$\s{2,}\$",
+                            "$ $",
+                            html_mod.unescape(c.strip().replace("\n", " ")),
+                        )
+                    )
                 )
             )
             for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)
@@ -180,7 +188,7 @@ def format_table_md(table_html: str) -> str:
     return "\n" + "\n".join(md_rows) + "\n"
 
 
-# ── 表格质量门禁（2026-08-10 用户拍板：能转的必是规整表格）──────────
+# ── 表格质量门禁（2026-08-10 用户拍板：能转的必是规整表格）──────────────
 
 TABLE_GATE_MIN_COLS = 2        # 最小列数（1 列不是表格）
 TABLE_GATE_MAX_COLS = 8        # 最大列数（防数据列表/超宽表）
@@ -255,7 +263,16 @@ def _node_to_md(node: dict) -> str:
                     parts.append(format_table_md(stripped))
                 else:
                     formatted = format_html_table(stripped)
-                    parts.append("\n".join(normalize_math(l) for l in formatted.splitlines()))
+                    # 表格前后补空行（与 format_table_md 的 return 对称）：
+                    # 否则表格行紧贴正文时，CommonMark 的 HTML 块（以 <table
+                    # 开头的类型 6 块）延续到第一个空行才结束，</table> 后的
+                    # 正文行/下一行 # 标题会被吞进 HTML 块，Obsidian/Typora
+                    # 不识别（A1 已确认问题，2026-08-18）
+                    parts.append(
+                        "\n"
+                        + "\n".join(normalize_math(l) for l in formatted.splitlines())
+                        + "\n"
+                    )
             else:
                 # 非表格行：图片引用归一化 → 公式规范化 → 深度清洗
                 parts.append(clean_markdown(normalize_math(normalize_html_images(line))))
@@ -346,9 +363,12 @@ def _to_oss_links(
             key = f"{book_folder}/{rel}"
             items.append((key, src))
             rel_to_key[rel] = key
-    mapping = uploader.upload_many(items)
+    mapping, failed = uploader.upload_many(items)
+    # B4：失败图不写 URL（避免产生错误公网链接），只替换成功图
     for rel, key in rel_to_key.items():
-        md_text = md_text.replace(f"({rel})", f"({mapping[key]})")
+        if key in mapping:
+            md_text = md_text.replace(f"({rel})", f"({mapping[key]})")
+    # 失败图返回时保持相对路径（本地可读），调用方据 failed 决定是否报错
     return md_text
 
 

@@ -14,9 +14,10 @@ import pytest
 from app.config import settings
 from app.services import compare
 
-# 门禁通过的表（2 列 2 行规整）+ 被拦的表（含 colspan → merged）
+# 门禁通过的表（2 列 2 行规整）+ 被拦的表（含 colspan → merged）+ 带公式的表
 TABLE_OK = "<table><tr><td>A</td><td>B</td></tr><tr><td>1</td><td>2</td></tr></table>"
 TABLE_MERGED = '<table><tr><td colspan="2">A</td></tr><tr><td>1</td><td>2</td></tr></table>'
+TABLE_MATH = "<table><tr><td>$P(X=k)$</td><td>B</td></tr><tr><td>1</td><td>2</td></tr></table>"
 
 
 @pytest.fixture
@@ -46,13 +47,14 @@ def fake_book(tmp_path, monkeypatch):
                 "lines": [
                     "第1章 绪论",
                     TABLE_OK,
+                    TABLE_MATH,
                     TABLE_MERGED,
                     "图1 ![](images/a.jpg)",
                     "图2 ![](images/missing.jpg)",
                 ],
                 "char_count": 120,
                 "image_count": 2,
-                "table_count": 2,
+                "table_count": 3,
                 "children": [
                     {"title": "第1节 甲", "level": 2, "page_range": "p1-25",
                      "lines": ["第1节 甲", "正文"], "char_count": 10,
@@ -85,15 +87,61 @@ def test_compare_report_structure(fake_book):
 
 
 def test_compare_report_table_gates(fake_book):
-    """表格门禁统计：1 转 + 1 保（merged），原因分布正确。"""
+    """表格门禁统计：2 转（1 规整 + 1 公式）+ 1 保（merged），原因分布正确。"""
     r = compare.build_compare_report(1, "测试教材")
     t = r["tables"]
-    assert t["converted"] == 1
+    assert t["converted"] == 2
     assert t["kept"] == 1
     assert t["reasons"].get("merged") == 1
     # 章节级表格统计一致
-    assert r["chapters"][0]["tables"]["converted"] == 1
+    assert r["chapters"][0]["tables"]["converted"] == 2
     assert r["chapters"][0]["tables"]["kept"] == 1
+
+
+def test_compare_report_math_tables(fake_book):
+    """公式维度：1 个疑似公式表（转 MD），汇总字段完整且向后兼容。"""
+    r = compare.build_compare_report(1, "测试教材")
+    m = r["tables"]["math"]
+    assert m["total"] == 1
+    assert m["converted"] == 1
+    assert m["kept"] == 0
+    assert m["kept_reasons"] == {}
+    assert m["kept_merged"] == 0
+    assert m["kept_cell_too_long"] == 0
+
+
+# ── 表格公式维度（A2）───────────────────────────────
+
+
+def test_is_math_table_features():
+    """疑似公式判定：$ 定界符 / <eq> 标签 / LaTeX 反斜杠命令，普通表不误判。"""
+    assert compare._is_math_table(TABLE_MATH) is True            # $...$
+    assert compare._is_math_table(
+        "<table><td><eq>\\frac{a}{b}</eq></td></table>"
+    ) is True                                                    # <eq> 标签
+    assert compare._is_math_table(
+        "<table><td>\\sum_{i=1}^{n} x_i</td></table>"
+    ) is True                                                    # 反斜杠命令
+    assert compare._is_math_table(TABLE_OK) is False             # 纯文本
+    assert compare._is_math_table(
+        "<table><td>单个$不走公式</td></table>"
+    ) is False                                                   # 单个 $ 不算
+
+
+def test_table_stats_math_dimension():
+    """_table_stats 公式维度：保留侧记录门禁原因与合并/超长。"""
+    merged_math = '<table><tr><td colspan="2">$a$</td></tr><tr><td>1</td><td>2</td></tr></table>'
+    long_math = f"<table><tr><td>${{x{'x' * 350}}}$</td><td>b</td></tr><tr><td>1</td><td>2</td></tr></table>"
+    s = compare._table_stats([TABLE_MATH, merged_math, long_math, TABLE_OK])
+    assert s["converted"] == 2 and s["kept"] == 2
+    m = s["math"]
+    assert m["total"] == 3
+    assert m["converted"] == 1
+    assert m["kept"] == 2
+    assert m["kept_reasons"].get("merged") == 1
+    assert m["kept_reasons"].get("cell_too_long") == 1
+    assert m["kept_merged"] == 1
+    assert m["kept_cell_too_long"] == 1
 
 
 def test_compare_report_image_missing(fake_book):
@@ -180,7 +228,7 @@ def test_compare_routes(fake_book):
         assert r.status_code == 200
         body = r.json()
         assert body["chapter_count"] == 1
-        assert body["tables"]["converted"] == 1
+        assert body["tables"]["converted"] == 2
 
         r2 = c.get("/api/books/1/compare/chapter/1")
         assert r2.status_code == 200

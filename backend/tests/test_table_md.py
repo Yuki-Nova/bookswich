@@ -135,6 +135,24 @@ def test_convert_multiline_html():
     assert lines[0] == "| a | b |"
 
 
+def test_convert_cell_img_normalized():
+    """单元格内 <img src="images/x.jpg"> 归一化为 ![]()（A5 实测 b6 暴露）。"""
+    html = (
+        "<table><tr><td>A</td><td>图</td></tr>"
+        "<tr><td>1</td><td><img src=\"images/abc123.jpg\"></td></tr></table>"
+    )
+    md = format_table_md(html)
+    assert "![](images/abc123.jpg)" in md
+    assert "<img" not in md
+    # 外部 URL 不归一化（保留 <img>，与 normalize_html_images 行为一致）
+    html2 = (
+        "<table><tr><td>A</td><td>图</td></tr>"
+        "<tr><td>1</td><td><img src=\"http://x.cn/a.jpg\"></td></tr></table>"
+    )
+    md2 = format_table_md(html2)
+    assert "<img" in md2
+
+
 # ── 集成（真实导出）────────────────────────────────────
 
 def test_full_export_gated_tables(rebuilt_full):

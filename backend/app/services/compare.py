@@ -14,10 +14,34 @@ import re
 from pathlib import Path
 
 from ..config import settings
-from .exporter import IMG_RE, _img_rel, _table_quality_gates, export_rebuilt
+from .exporter import (
+    IMG_RE,
+    TABLE_GATE_MAX_CELL_CHARS,
+    _img_rel,
+    _table_quality_gates,
+    export_rebuilt,
+)
 from .structure import check_section_continuity, load_batches
 
 RE_PAGE_RANGE = re.compile(r"p(\d+)-(\d+)")
+
+# A2 疑似公式特征（2026-08-18）：成对 $ 定界符 / <eq> 标签 / LaTeX 反斜杠命令
+_RE_MATH_DOLLAR = re.compile(r"(?<!\\)\$")
+_RE_MATH_LATEX_CMD = re.compile(r"\\[a-zA-Z]{2,}")
+
+
+def _is_math_table(table_html: str) -> bool:
+    """疑似公式表判定（保守：任一特征命中即计入，不把疑似当确定公式）。
+
+    - `<eq>` 标签（本地 MinerU 管道形态，云 API 为防御性 no-op）
+    - 成对 `$...$`（2+ 个未转义 $；单个 $ 如书名号/货币不算）
+    - LaTeX 反斜杠命令（\\frac / \\sum / \\overline 等）
+    """
+    if "<eq>" in table_html.lower():
+        return True
+    if len(_RE_MATH_DOLLAR.findall(table_html)) >= 2:
+        return True
+    return bool(_RE_MATH_LATEX_CMD.search(table_html))
 
 
 def _iter_nodes(chapters: list[dict]):
@@ -28,21 +52,66 @@ def _iter_nodes(chapters: list[dict]):
             yield from _iter_nodes([sub])
 
 
+def _max_cell_len(table_html: str) -> int:
+    """td 单元格内容最大长度（与门禁 G6 同口径）。"""
+    return max(
+        (
+            len(c)
+            for r in re.findall(r"<tr>(.*?)</tr>", table_html, re.S)
+            for c in re.findall(r"<td[^>]*>(.*?)</td>", r, re.S)
+        ),
+        default=0,
+    )
+
+
 def _table_stats(lines: list[str]) -> dict:
-    """统计节点 lines 中的表格：转换数 / 保留数 / 门禁原因分布。"""
+    """统计节点 lines 中的表格：转换数 / 保留数 / 门禁原因分布 + 公式维度（A2）。
+
+    math 子对象记录疑似公式表的面貌：
+      total/converted/kept      - 疑似公式表总数及去向
+      kept_reasons              - 被门禁拦截的公式表白名单外原因分布
+      kept_merged               - 其中含 rowspan/colspan（Markdown 无合并语义，不可转）
+      kept_cell_too_long        - 其中单格超长（G6 拦截）
+    """
     converted = kept = 0
     reasons: dict[str, int] = {}
+    math = {
+        "total": 0,
+        "converted": 0,
+        "kept": 0,
+        "kept_reasons": {},
+        "kept_merged": 0,
+        "kept_cell_too_long": 0,
+    }
     for line in lines:
         s = line.strip()
         if not s.startswith("<table"):
             continue
         ok, reason = _table_quality_gates(s)
+        is_math = _is_math_table(s)
+        if is_math:
+            math["total"] += 1
         if ok:
             converted += 1
+            if is_math:
+                math["converted"] += 1
         else:
             kept += 1
             reasons[reason] = reasons.get(reason, 0) + 1
-    return {"converted": converted, "kept": kept, "reasons": reasons}
+            if is_math:
+                math["kept"] += 1
+                math["kept_reasons"][reason] = math["kept_reasons"].get(reason, 0) + 1
+                lower = s.lower()
+                if "rowspan" in lower or "colspan" in lower:
+                    math["kept_merged"] += 1
+                if _max_cell_len(s) > TABLE_GATE_MAX_CELL_CHARS:
+                    math["kept_cell_too_long"] += 1
+    return {
+        "converted": converted,
+        "kept": kept,
+        "reasons": reasons,
+        "math": math,
+    }
 
 
 def _image_stats(lines: list[str], md_dir: Path) -> dict:
@@ -74,7 +143,19 @@ def build_compare_report(book_id: int, book_title: str) -> dict:
     md_dir = settings.md_dir / f"b{book_id}_{book_title}"
 
     ch_rows: list[dict] = []
-    tables_total = {"converted": 0, "kept": 0, "reasons": {}}
+    tables_total = {
+        "converted": 0,
+        "kept": 0,
+        "reasons": {},
+        "math": {
+            "total": 0,
+            "converted": 0,
+            "kept": 0,
+            "kept_reasons": {},
+            "kept_merged": 0,
+            "kept_cell_too_long": 0,
+        },
+    }
     images_total = {"referenced": 0, "missing": []}
     rebuilt_chars = 0
     for i, ch in enumerate(chapters, 1):
@@ -92,6 +173,11 @@ def build_compare_report(book_id: int, book_title: str) -> dict:
         tables_total["kept"] += ts["kept"]
         for k, v in ts["reasons"].items():
             tables_total["reasons"][k] = tables_total["reasons"].get(k, 0) + v
+        m_total, m = tables_total["math"], ts["math"]
+        for k in ("total", "converted", "kept", "kept_merged", "kept_cell_too_long"):
+            m_total[k] += m[k]
+        for k, v in m["kept_reasons"].items():
+            m_total["kept_reasons"][k] = m_total["kept_reasons"].get(k, 0) + v
         images_total["referenced"] += im["referenced"]
         for rel in im["missing"]:
             if rel not in images_total["missing"]:
