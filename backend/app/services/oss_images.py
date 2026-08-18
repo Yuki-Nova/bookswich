@@ -64,12 +64,27 @@ class OssImageUploader:
             logger.info("OSS 上传(404 兜底): %s", key)
         return settings.oss_image_base + "/" + quote(key, safe="/")
 
-    def upload_many(self, items: list[tuple[str, Path]]) -> dict[str, str]:
-        """批量上传，返回 {key: 公网 URL} 映射。顺序上传（单次导出图片量 ~100-500，足够）。"""
+    def upload_many(self, items: list[tuple[str, Path]]) -> tuple[dict[str, str], list[str]]:
+        """批量上传，返回 (mapping, failed)。顺序上传（单次导出图片量 ~100-500，足够）。
+
+        B4（2026-08-18）：部分成功处理——
+        - 单图失败仅计入 failed，不影响其它图继续上传（不再整体中断）
+        - 源文件缺失：直接跳过（入 failed，不尝试 head/put）
+        - 已存在（幂等）返回 URL 不计入 failed
+        调用方据 failed 决定整体失败 / 重试 / 部分接受的提示。
+        """
         mapping: dict[str, str] = {}
+        failed: list[str] = []
         for key, src in items:
-            mapping[key] = self.upload(key, src)
-        return mapping
+            if not src.exists():
+                failed.append(key)
+                continue
+            try:
+                mapping[key] = self.upload(key, src)
+            except Exception as exc:  # noqa: BLE001 — 网络/权限/异构异常统一进失败清单
+                logger.warning("OSS 上传失败 key=%s: %s", key, exc)
+                failed.append(key)
+        return mapping, failed
 
     def delete_prefix(self, prefix: str) -> int:
         """删除指定 key 前缀下的全部对象（best-effort），返回删除数。

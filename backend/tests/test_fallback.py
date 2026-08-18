@@ -81,8 +81,8 @@ def test_obsidian_zip_fallback_oss_mode(fake_book, monkeypatch):
         def __init__(self) -> None:
             pass
 
-        def upload_many(self, items: list[tuple[str, Path]]) -> dict[str, str]:
-            return {key: "https://obs.example.com/" + key for key, _ in items}
+        def upload_many(self, items: list[tuple[str, Path]]) -> tuple[dict[str, str], list[str]]:
+            return {key: "https://obs.example.com/" + key for key, _ in items}, []
 
     monkeypatch.setattr("app.services.oss_images.OssImageUploader", FakeUploader)
     data = export_obsidian_zip(1, "测试论文", image_mode="oss")

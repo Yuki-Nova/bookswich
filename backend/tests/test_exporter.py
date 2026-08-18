@@ -119,9 +119,9 @@ def _fake_uploader_cls(calls: list):
         def __init__(self) -> None:
             pass
 
-        def upload_many(self, items: list[tuple[str, Path]]) -> dict[str, str]:
+        def upload_many(self, items: list[tuple[str, Path]]) -> tuple[dict[str, str], list[str]]:
             calls.extend(items)
-            return {key: "https://obs.example.com/" + key for key, _ in items}
+            return {key: "https://obs.example.com/" + key for key, _ in items}, []
 
     return FakeUploader
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from datetime import date
 from pathlib import Path
 from typing import Callable
@@ -15,6 +16,11 @@ from typing import Callable
 from ..config import settings
 
 FLASH_MAX_PAGES = 20
+
+# B2 有限重试（2026-08-18）：网络类瞬时错误（连接重置/超时）尝试重试
+_RETRYABLE_EXC = (ConnectionError, TimeoutError, OSError)
+# 退避间隔（秒），测试可 monkeypatch 成 (0, 0) 提速
+RETRY_DELAYS = (1.0, 2.0)
 
 # 全局锁：routes 每次请求各自 new QuotaManager()，锁必须模块级共享才原子
 _QUOTA_LOCK = threading.Lock()
@@ -267,13 +273,33 @@ class MineruParser:
 
             need = end - start + 1
             pages_str = f"{start}-{end}" if start != end else str(start)
+            # B2 有限重试（2026-08-18）：网络类异常重试 2 次（指数退避），
+            # 业务失败（云端返回 error）不重试——同页区间重复请求幂等，
+            # 但重试只限定连接类错误，避免重复消耗云端额度。
             try:
                 out = self._extract(str(pdf_path), pages_str)
+            except _RETRYABLE_EXC:
+                ok_extract = False
+                for delay in RETRY_DELAYS:
+                    time.sleep(delay)
+                    try:
+                        out = self._extract(str(pdf_path), pages_str)
+                        ok_extract = True
+                        break
+                    except _RETRYABLE_EXC:
+                        continue
+                if not ok_extract:
+                    errors.append(
+                        f"batch {idx} (p{start}-{end}): 网络异常，重试 {len(RETRY_DELAYS)} 次后仍失败"
+                    )
+                    continue
             except Exception as exc:
                 errors.append(f"batch {idx} (p{start}-{end}): {type(exc).__name__}: {exc}")
                 continue
 
             if out["error"] or not out["markdown"]:
+                errors.append(f"batch {idx} (p{start}-{end}): {out['error'] or 'empty markdown'}")
+                continue
                 errors.append(f"batch {idx} (p{start}-{end}): {out['error'] or 'empty markdown'}")
                 continue
 
