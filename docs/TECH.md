@@ -243,6 +243,23 @@ kept_reasons,kept_merged,kept_cell_too_long}`——被拦截公式表的原因�
   `--cleanup [--apply]` 备份清理（保留最新 3 份，先 dry-run 再删，记录到 `backup_cleanup.log`）。
 - **D5** `docs/PRODUCTION.md`：生产变更记录（原因/版本/是否重建/是否重导/验证/例外），明确不记密码/token/secret。
 
+## 1.9 构建产物与运行时门禁（2026-08-18，C5）
+
+- **前端构建产物门禁** `frontend/scripts/verify_build.mjs`，接入 `npm run verify:build`（vite build + 门禁）：
+  - 检查 1「关键文案入 JS bundle」：`上传 PDF`、`教材 PDF → Markdown`、`下载 ZIP`、`解析任务`、`访问受保护`、`章节对比`——防构建未生效 / tree-shake 误删 / 空构建。
+  - 检查 2「关键 design token 入 CSS」：`--accent: #e5b14f`、`--bg: #0b0d11`、`color-scheme: dark`、`.rail`、`.workspace`——匹配先**去空白**（容忍 Vite/CSS 压缩把 `color-scheme: dark` 压成 `color-scheme:dark`）。
+  - 检查 3「已删除旧类名零残留」：`FORBIDDEN_CSS = [.hero, .sidebar, .side-card, .side-book]`（v2 有、v3 彻删）。CSS 形态双向词边界 `(?<![-.\w])` 防 `.hero` 误伤 `.empty-hero`；JS 形态仅对长度 ≥6 的类名裸词检测，避免 `hero` 泛词误报。
+  - 核心逻辑为纯函数 `analyze(jsText, cssText)`（CLI 直跑守卫 `import.meta.url === pathToFileURL(process.argv[1])`），`scripts/__tests__/verify_build.test.js` 7 用例。
+- **后端可定位错误日志**：
+  - `services/mineru_client.py`：新增模块 logger，`parse_book` 全流程埋点——`parse start`（book=id/pages/batches/batch_size/mode）、批次失败/网络重试失败/额度满（`book=%s` + `batch N (pX-Y)` 页区间）、`parse finished`（有错时 warning 带错误数+首个错误）`/ parse done`（全绿汇总）。
+  - `api/routes.py`：补 `parse flow ended`（status/progress/errors 数）、`structure rebuilt ok`、导出/导入失败（`book=%s format=%s chapter=%s`）、`import-obsidian ok`（files/target）。
+  - 测试 `tests/test_logging.py` 3 用例，`caplog` 断言日志确实带 book_id 与批区间（保证「可定位」不只是一句注释）。
+- **生产冒烟收集** `backend/scripts/smoke_playwright.py`（backend venv，复用系统 Edge）：
+  - 登录全流程 C3 + 教材打开；收集三类运行时信号并断言语为 0：**console error / pageerror / HTTP 5xx**。
+  - 「已知认证 401」（错误密码等预期 401，浏览器在 console 记 error）**透明归类**到 `known_auth_401` 单独列出，不计硬失败、绝不静默。
+  - 用法：`$env:BOOKSWICH_WEB_PASS='...'` 后 `.venv\Scripts\python.exe scripts/smoke_playwright.py`；退出码 0/1/2。
+  - 实测生产（2026-08-18）：阶段 6/6 全过，console error ×0、pageerror ×0、HTTP 5xx ×0（唯一 401 为错误密码登录的预期响应，已归类列出）。
+
 ## 2. 核心流程
 
 ### 2.1 解析（MinerU 分批）

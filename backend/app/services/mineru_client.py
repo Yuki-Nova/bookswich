@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from datetime import date
@@ -14,6 +15,8 @@ from pathlib import Path
 from typing import Callable
 
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 FLASH_MAX_PAGES = 20
 
@@ -233,6 +236,12 @@ class MineruParser:
             end = min(start + batch_size - 1, total_pages)
             batches.append((start, end))
 
+        logger.info(
+            "parse start book=%s title=%r pages=%d batches=%d batch_size=%d mode=%s",
+            book_id, book_title, total_pages, len(batches), batch_size,
+            "full" if self.api_key else "flash",
+        )
+
         batch_files: list[str] = []
         errors: list[str] = []
         pages_used = 0
@@ -260,7 +269,9 @@ class MineruParser:
             # 优先页数超 1000 不中断——MinerU 自动进普通队列排队，只是慢。
             if not file_reserved:
                 if not self.quota.try_reserve_file():
-                    errors.append(f"file_limit_exceeded at batch {idx} (p{start}-{end})")
+                    msg = f"file_limit_exceeded at batch {idx} (p{start}-{end})"
+                    logger.warning("book=%s %s", book_id, msg)
+                    errors.append(msg)
                     break
                 file_reserved = True
                 try:
@@ -289,18 +300,23 @@ class MineruParser:
                     except _RETRYABLE_EXC:
                         continue
                 if not ok_extract:
-                    errors.append(
-                        f"batch {idx} (p{start}-{end}): 网络异常，重试 {len(RETRY_DELAYS)} 次后仍失败"
+                    msg = (
+                        f"batch {idx} (p{start}-{end}): 网络异常，重试 "
+                        f"{len(RETRY_DELAYS)} 次后仍失败"
                     )
+                    logger.error("book=%s %s", book_id, msg)
+                    errors.append(msg)
                     continue
             except Exception as exc:
-                errors.append(f"batch {idx} (p{start}-{end}): {type(exc).__name__}: {exc}")
+                msg = f"batch {idx} (p{start}-{end}): {type(exc).__name__}: {exc}"
+                logger.error("book=%s %s", book_id, msg, exc_info=exc)
+                errors.append(msg)
                 continue
 
             if out["error"] or not out["markdown"]:
-                errors.append(f"batch {idx} (p{start}-{end}): {out['error'] or 'empty markdown'}")
-                continue
-                errors.append(f"batch {idx} (p{start}-{end}): {out['error'] or 'empty markdown'}")
+                msg = f"batch {idx} (p{start}-{end}): {out['error'] or 'empty markdown'}"
+                logger.error("book=%s %s", book_id, msg)
+                errors.append(msg)
                 continue
 
             batch_file.write_text(out["markdown"], encoding="utf-8")
@@ -323,6 +339,17 @@ class MineruParser:
             batch_files.append(str(batch_file))
             if progress_cb:
                 progress_cb(idx, len(batches))
+
+        if errors:
+            logger.warning(
+                "parse finished book=%s errors=%d/%d batches, first=%r",
+                book_id, len(errors), len(batches), errors[:1],
+            )
+        else:
+            logger.info(
+                "parse done book=%s batches=%d pages=%d skipped_cached=%d",
+                book_id, len(batches), pages_used, skipped_cached,
+            )
 
         return {
             "batch_files": batch_files,

@@ -306,9 +306,19 @@ async def start_parse(book_id: int):
 
                     structure.run(book_id, row["title"])
                     final_status = "structure_ok"
+                    logger.info(
+                        "structure rebuilt ok book=%s title=%r", book_id, row["title"]
+                    )
                 except Exception:
                     # 重建失败不致命：保持 parsed，可后续手动重跑 structure.run
                     logger.exception("structure.run failed for book %s", book_id)
+
+            logger.info(
+                "parse flow ended book=%s title=%r status=%s progress=%s errors=%d",
+                book_id, row["title"], final_status,
+                f"{len(result['batch_files'])}/{result['batches_total']}",
+                len(result["errors"]),
+            )
 
             with get_conn() as conn:
                 conn.execute(
@@ -476,8 +486,10 @@ async def export_markdown(
                 raise HTTPException(400, "raw 格式不支持按章导出")
             text = exporter.export_raw(book_id, row["title"])
     except FileNotFoundError as exc:
+        logger.warning("export fail book=%s format=%s chapter=%s: %s", book_id, format, chapter, exc)
         raise HTTPException(400, str(exc))
     except ValueError as exc:
+        logger.warning("export fail book=%s format=%s chapter=%s: %s", book_id, format, chapter, exc)
         raise HTTPException(400, str(exc))
     # 文件名安全化：旧库记录 title 可能含非法字符（新上传已在上传时 sanitize）
     stem = _safe_stem(f"{row['title']}{f'-第{chapter}章' if chapter else ''}")
@@ -520,8 +532,10 @@ async def import_obsidian(book_id: int):
     try:
         data = exporter.export_obsidian_zip(book_id, row["title"], image_mode="oss")
     except FileNotFoundError as exc:
+        logger.warning("import-obsidian export fail book=%s: %s", book_id, exc)
         raise HTTPException(400, str(exc))
     except ValueError as exc:
+        logger.warning("import-obsidian export fail book=%s: %s", book_id, exc)
         raise HTTPException(400, str(exc))
 
     target = settings.obsidian_vault_dir / settings.obsidian_sub_dir
@@ -541,6 +555,10 @@ async def import_obsidian(book_id: int):
                 raise HTTPException(400, f"非法路径: {m.filename}")
         zf.extractall(target)
         n_files = len(zf.infolist())
+    logger.info(
+        "import-obsidian ok book=%s title=%r files=%d target=%s",
+        book_id, row["title"], n_files, target,
+    )
     return {"status": "ok", "target": str(target), "files": n_files}
 
 

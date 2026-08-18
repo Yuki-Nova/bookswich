@@ -147,7 +147,20 @@ PDF → [MinerU 分批解析 25页/批 + 缓存 + 配额] → [结构重建 规�
   - `scripts/golden_samples.py`：采集本地 build 教材章数/标题 → 固化 `data/build_golden_samples.json` 基线，
     `--update` 更新 / 默认校验（3 本全过，无退化）
   - `tests/test_golden_samples.py`（2 用例）：校验通过 + 基线非空（结构/导出规则修改后重跑防退化）
-- [ ] **C5 / P2** 增加构建产物、console error、pageerror 和 HTTP 5xx 门禁
+- [x] **C5 / P2** 构建产物 + console error / pageerror / HTTP 5xx 门禁（2026-08-18 完成）
+  - **前端构建产物门禁** `frontend/scripts/verify_build.mjs`（`npm run verify:build` 一键）：
+    3 类检查——关键组件文案入 JS bundle、关键设计 token 入 CSS（容忍压缩空白）、
+    已删除旧类名（.hero/.sidebar/.side-card/.side-book）零残留（词边界匹配，不误伤 .empty-hero）
+  - 核心逻辑纯函数 `analyze(js,css)` 可测；`scripts/__tests__/verify_build.test.js` 7 用例
+    （含反例：缺文案/缺 token/旧类名残留/词边界不误报/压缩容忍）
+  - **后端可定位错误日志**：mineru_client 全程日志（parse start 带 book/pages/batches、
+    批次失败/重试失败/额度满带 book+批区间、结束汇总）；routes 补解析流结束、
+    导出/导入失败（带 book_id/format/chapter）与 import 成功日志
+  - 测试 `tests/test_logging.py` 3 用例（caplog 验证 book_id/批区间可定位）
+  - **生产冒烟收集** `backend/scripts/smoke_playwright.py`：登录全流程 + 教材打开，
+    收集 console error / pageerror / HTTP 5xx 并断言为 0；透明归类「已知认证 401」
+    （错误密码等预期响应）单独列出不静默；实测生产 6/6 阶段全过、三类信号全零
+
 
 ### D. 运维自动化
 
