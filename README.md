@@ -97,9 +97,11 @@ bookswich/
 │   │       ├── mineru_client.py # 分批解析 + 缓存完整性 + 配额
 │   │       ├── structure.py     # 规则法+目录驱动重建（核心）
 │   │       ├── exporter.py      # 导出 + 表格门禁/净化链 + 深度清洗
+│   │       ├── verify_export.py # 导出物静态回归扫描（A4）
+│   │       ├── audit_orphans.py # 孤儿产物只读审计（B3）
 │   │       ├── compare.py       # 质检报告 + 按章 diff
-│   │       └── oss_images.py    # OSS 图片上传（幂等）
-│   └── tests/                   # pytest 97 用例
+│   │       └── oss_images.py    # OSS 图片上传（幂等 + 部分失败处理 B4）
+│   └── tests/                   # pytest 172 用例
 ├── frontend/src/                # Vue 3 单页（上传/进度/下载/对比）
 ├── data/                        # raw/ + md/<book>/ + build/<book>/ + kb.db + quota.json
 ├── export/                      # 已导出 Markdown
@@ -110,20 +112,29 @@ bookswich/
 
 ```powershell
 cd backend
-.venv\Scripts\python.exe -m pytest    # 97 用例全绿
+.venv\Scripts\python.exe -m pytest    # 172 用例全绿
+cd ../frontend
+npm test                              # vitest 11 用例
+npm run build                         # 前端构建门禁
 ```
 
 ## 生产部署（阿里云 ECS）
 
 - 后端：systemd `bookswich.service`，uvicorn 127.0.0.1:8001（nginx 反代 bookswich.yukinova.top）
 - 前端：`frontend/dist` 由 nginx 托管；WebDAV vault：wsgidav 8081（webdav.yukinova.top，Obsidian 同步）
+- **访问控制（2026-08-18 启用，前端登录方案 A）**：后端 `web_password` 签发会话 token，`POST /api/auth/login` 登录；
+  前端登录页 + `authFetch` 统一带 `X-Auth-Token`。`/api` 匿名 401、登录后 200；`api_token`（程序）仍可用。
+  首页静态公开（SPA 壳）；nginx `auth_basic` 因宝塔 nginx 1.18 该模块不可用未采用（见 docs/TECH.md §1.6）
 - 部署流程见 skill `bookswich-deploy`（paramiko 打包上传 → 备份 → 解压 → 重启 → 验证）
 
 ## 已知限制
 
 - 极少数 OCR 截断的残缺公式无法自动修复（导出后 Typora 显示为原文）
-- MinerU 偶发缺个别图片（导出 zip 跳过该引用，其余图片正常）
-- 保留 HTML 的表格（合并单元格等）内公式渲染取决于渲染器对 HTML 内 inline math 的支持
+- MinerU 偶发缺个别图片（导出 zip 跳过该引用，其余图片正常；重跑批次可补图）
+- 保留 HTML 的表格（合并单元格等）内公式渲染取决于渲染器对 HTML 内 inline math 的支持——
+  2026-08-18 已修复表格前后空行边界问题；规整表格经门禁转 MD 后公式可渲染。复杂表格
+  维持 HTML 原样为**已决策略**（2026-08-18 依据 3 本教材 576 表统计：被拦公式表主因是
+  合并单元格，非合并被拦者全为超宽/超长格，局部转换收益不抵风险，见 docs/TODO.md A3）
 - 知识库管理已移交 Obsidian（本项目不再提供问答）
 
 ## 未来规划

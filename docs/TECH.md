@@ -125,6 +125,124 @@ Typora/Obsidian 渲染；而 HTML→Markdown 全量转换在真实教材中导�
 
 **铁律**：禁止为公式渲染牺牲表格格式——门禁不通过的表格宁可 HTML 原样，不强行转换。
 
+## 1.4 导出物静态回归扫描（2026-08-18，A4）
+
+导出后的 Markdown 做静态规则扫描，输出机器可读 issue 列表（rule/severity/line/message），
+用于导出链路回归 + 后续 vault 体检复用。
+
+| 规则 | 严重级 | 触发条件 |
+|------|--------|----------|
+| `unexpected_img_tag` | error | 表格外残留 `<img`（应已被 normalize_html_images 归一化为 `![]()`） |
+| `unexpected_del_tag` | error | 表格外残留 `<del`（应已被 clean_markdown 删除） |
+| `blank_run` | error | 连续 3+ 空行（导出折叠 `\n{3,}`→`\n\n` 应已处理） |
+| `math_unclosed` | error | 单行未转义 `$` 数为奇数（公式未闭合；`$$` 块级成对不误报） |
+| `table_touch` | error | `</table>` 后无空行紧贴正文/标题（HTML 块吞内容，A1 同类） |
+| `missing_image` | error | `![](images/x)` / `<img src="images/x">` 引用但文件不存在 |
+| `md_table_ragged` | error | Markdown 表格块（连续 `|` 行 ≥3）列数不一致 |
+| `html_table_ragged` | warning | HTML 表格各 tr 行 td 数不一致（保留表格仅提示，不自动改） |
+
+**关键设计**：
+- **表格内零误报**（CLAUDE.md 约定 #1）：`<table`~`</table>` 块整块跳过外部规则检查，
+  表格内 `<img>`/`<del>`/实体/`colspan`/`rowspan`/`<eq>` 一律不报——表格外出现残影才报。
+- **跨界空行归零**：遇到 `<table` 行 `blank_run` 计数归零，防止表格前后空行跨表格块
+  被误判为连续 3 空行（实测 b1 三处误报由此而来）。
+  `</table>` 行会更新"上一行"状态，从而捕获其后无空行紧贴正文/标题的情况。
+
+**用法**（backend/ 目录，images 参数传 md 同级的 `data/md/<book>` 目录——引用含 `images/` 前缀）：
+```powershell
+.venv\Scripts\python.exe scripts/verify_export.py ^
+    ..\export\医药应用概率统计.md ..\data\md\b1_医药应用概率统计
+```
+存在 error 退出码 1，仅 warning/无问题退出码 0。测试 `tests/test_verify_export.py`（22 用例）。
+
+**实测基线（2026-08-18）**：《医药应用概率统计》全书 rebuilt 导出（1140KB）扫描零 issue。
+
+## 1.5 表格公式分布审计（2026-08-18，A2/A3）
+
+`compare._table_stats` 的 `math` 维度 + `scripts/audit_tables.py`（只读，人类可读 + `--json`），
+回答「复杂 HTML 表格有多少含公式、哪些门禁阻止了转换」。
+
+**疑似公式判定 `_is_math_table`**（保守，不把疑似当确定公式）：成对 `$...$` / `<eq>` 标签 /
+LaTeX 反斜杠命令（`\frac` 等）任一命中即计入。
+
+**统计维度（per 教材）**：`total/converted/kept` + 门禁原因分布；`math.{total,converted,kept,
+kept_reasons,kept_merged,kept_cell_too_long}`——被拦截公式表的原因、含合并单元格数、超长单元格数。
+
+**用法**（backend/ 目录）：
+```powershell
+.venv\Scripts\python.exe scripts/audit_tables.py                      # 全部 build 教材
+.venv\Scripts\python.exe scripts/audit_tables.py --json               # 机器可读
+.venv\Scripts\python.exe scripts/audit_tables.py 1 医药应用概率统计    # 单本
+```
+
+**基线（2026-08-18，3 本 576 表）**：
+
+| 教材 | 总表 | 转 MD | 保留 | 疑似公式表 | 公式转 MD | 公式保留 | 保留主因 |
+|------|------|-------|------|-----------|-----------|---------|---------|
+| b1 概率统计 | 349 | 176 | 173 | 161 (46%) | 79 | 82 | merged 74 + cols 6 + 超长 2 |
+| b6 分析化学 | 111 | 88 | 23 | 71 (64%) | 54 | 17 | merged 16 + cols 1 |
+| b8 工业药剂学 | 116 | 94 | 22 | 16 (14%) | 11 | 5 | merged 5 |
+
+**A3 决策（2026-08-18 拍板，依据以上数据）：不实现局部转换，维持保留 HTML。**
+被拦截公式表主因是 `rowspan/colspan`（Markdown 无合并语义，转换必须放弃合并，被禁）；
+非合并被拦截公式表极少（b1 8 / b6 1 / b8 0）且全为 cols≥9 超宽列或单格 >300 字符
+（样例：频数分布表、函数值表、算法步骤表）——转 MD 列溢出/单格爆炸，收益不抵风险。
+144 个公式表已转 MD 获得公式渲染；104 个保留 HTML 的接受渲染器限制（见 README 已知限制）。
+
+## 1.6 生产可靠性加固（2026-08-18，B1-B5）
+
+**B1 SQLite 并发**：`get_conn` 加 `timeout=30` + `PRAGMA busy_timeout=30000`（写冲突等待而非立即报错）；
+`init_db` 开 `PRAGMA journal_mode=WAL`（读写不互斥，文件级持久）。项目约定短事务 + 每次新建连接。
+压力测试：8 线程×30 读写无 `database is locked`、进度短事务并发、旧库列迁移不丢数据
+（`tests/test_db_concurrency.py`）。
+
+**B2 解析失败处理**：`parse_book` 对**网络类异常**（ConnectionError/TimeoutError/OSError）做 2 次指数退避重试
+（同页区间幂等）；**业务失败**（云端返回 `error`）不重试——避免重复消耗云计算额度。books 表新增
+`parse_error` 列存可读失败原因（前 5 条 + 总数），routes 失败写入、崩溃兜底写「解析线程崩溃」。
+`recover_stale_parsing` 启动重置遗留 `parsing`。`tests/test_parse_failure.py`。
+
+**B3 文件生命周期 / 孤儿清理**：`services/audit_orphans.py` + `scripts/audit_orphans.py`（CLI：只读 / `--dry-run`
+默认 / `--delete`）。
+- DB vs 磁盘 `build/` `md/` 目录差异：孤儿目录（删除残留）只报告不删（删教材走 `DELETE /api/books`）；
+  DB 记录但目录缺失 → 完整性损坏清单。
+- 孤儿图片：`images/` 中未被该教材任何 batch md 引用的文件（MinerU 重跑 hash 变化残留）。
+  **跨批共享目录按「该 md 目录」引用判定**，不能全仓库混判；md 引用了但缺文件 = 缺图（需重跑，不删）。
+- 真实基线：b8 工业药剂学发现 **267 个孤儿图（8.3MB）**。`tests/test_audit_orphans.py`。
+
+**B4 OSS 部分失败**：`upload_many` 返回 `(mapping, failed)`——单图失败入 failed 不影响其余（不再整体中断）；
+源文件缺失直接跳过；幂等已存在不计失败。`_to_oss_links` 只替换成功图 URL，**失败图保留相对路径**
+（不产生错误公网链接）；`image_mode=local` 不实例化 OSS uploader，OSS 故障不影响本地导出。
+`tests/test_oss_failure.py`。
+
+**B5 生产访问控制（2026-08-18 落地，前端登录方案 A）**：
+- 宝塔 nginx 1.18 `auth_basic` 模块不可用（放行后 500、错误密码也 500、error.log 无记录；对照实验确诊）——nginx 层 basic auth 不可行。
+- **后端**：`app/services/auth.py` 双通道鉴权——`api_token`（程序化调用，`X-Auth-Token` 头）+ `web_password` 签发的会话 token（浏览器登录）；
+  `POST /api/auth/login` 校验密码签发确定性会话 token（`web_`+sha256(web_password+盐)，静态无需 session 存储）。main.py middleware 对 `/api`
+  （除 login）校验二者任一；未配置任何密码时零鉴权（本地零摩擦）。
+- **前端**：`auth.js`（`authFetch` 统一带 `X-Auth-Token`、401 清 token、`authedUrl` 给 download/`<img>`/pdf 链接附加 `?token=`）+ `LoginPanel.vue`
+  登录页 + App.vue 登录态；UploadPanel XHR 手动加头；各调用点接入。
+- **验证**：匿名 `/api` 401、登录拿 token、带 token books/health 200、错密码 401；`tests/test_auth.py`（6 用例）；后端 pytest 157、前端 build 通过。
+
+## 1.7 验证体系（2026-08-18，C1-C4）
+
+- **C1 接口回归**：`tests/test_api_regression.py`（13 用例）——upload 非 PDF/损坏/有效、export 非法 format/images/raw+chapter/章节越界/oss 未配置、删除解析中/不存在/成功。
+- **C2 前端行为测试（引入 vitest 4.1）**：`npm test`（= `vitest run`）。`useParseTask.test.js`（4：配额拦截/startParse/接管/完成清理）+ `auth.test.js`（7：token 存取/authFetch 注入 X-Auth-Token/401 清理/authedUrl，需 `@vitest-environment jsdom`）。全量 11 通过。
+- **C3 Playwright 冒烟（系统 Edge headless）**：线上端到端——登录页→错误密码→正确密码登录渲染主界面→教材列表→token 持久→刷新保持→无 5xx（6/6，截图 export/shots/）。
+- **C4 黄金样本**：`scripts/golden_samples.py` 固化本地 build 教材的章数/标题为基线
+  （`data/build_golden_samples.json`），`--update` 更新/默认校验；`tests/test_golden_samples.py`（2 用例）
+  作为「结构/导出规则修改后防退化」的入口。
+
+**测试基线（2026-08-18）**：后端 pytest 172 / 前端 vitest 11 / 前端 build ✓ / Playwright 冒烟 6/6。
+
+## 1.8 运维自动化（2026-08-18，D1-D5）
+
+- **D1** `scripts/ops.py`：`rebuild/export/import` 子命令（`--id/--title/--out/--dry-run`），书名显式传入不硬编码。
+- **D2** `scripts/vault_health.py`：vault 教材体检——章节数（对照 build structure）、MOC、OSS 图片、残留 HTML/实体/坏公式/异常空行、孤儿 md；`--json` 机器可读。
+- **D3+D4** `scripts/server_health.py`（paramiko，SSH 密码走环境变量 `BOOKSWICH_SSH_PASS`/`BOOKSWICH_WEB_PASS`）：
+  `--check` 健康检查（服务/后端+token/首页/匿名 401/登录后 200/数据库/WebDAV）；
+  `--cleanup [--apply]` 备份清理（保留最新 3 份，先 dry-run 再删，记录到 `backup_cleanup.log`）。
+- **D5** `docs/PRODUCTION.md`：生产变更记录（原因/版本/是否重建/是否重导/验证/例外），明确不记密码/token/secret。
+
 ## 2. 核心流程
 
 ### 2.1 解析（MinerU 分批）
