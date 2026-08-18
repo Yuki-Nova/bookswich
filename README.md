@@ -103,7 +103,7 @@ bookswich/
 │   │       ├── audit_orphans.py # 孤儿产物只读审计（B3）
 │   │       ├── compare.py       # 质检报告 + 按章 diff
 │   │       └── oss_images.py    # OSS 图片上传（幂等 + 部分失败处理 B4）
-│   └── tests/                   # pytest 175 用例
+│   └── tests/                   # pytest 176 用例
 ├── frontend/src/                # Vue 3 单页（上传/进度/下载/对比）
 ├── data/                        # raw/ + md/<book>/ + build/<book>/ + kb.db + quota.json
 ├── export/                      # 已导出 Markdown
@@ -114,7 +114,7 @@ bookswich/
 
 ```powershell
 cd backend
-.venv\Scripts\python.exe -m pytest    # 175 用例全绿
+.venv\Scripts\python.exe -m pytest    # 176 用例全绿
 cd ../frontend
 npm test                              # vitest 18 用例
 npm run verify:build                  # 前端构建门禁（vite build + 产物检查）
