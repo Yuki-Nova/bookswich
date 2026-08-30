@@ -48,3 +48,14 @@
 - **是否重导 vault**：是（5 本重 import-obsidian，OSS 外链模式）
 - **验证结果**：A1 表格空行修复在服务器 5 本新导入 0 残留；旧 b1 10/20 章残留为历史导入遗留
 - **已知例外**：b6 missing_image（MinerU hash）
+
+---
+
+## 2026-08-30 — 移除 RAG 遗留 vectors_dir（config.py）
+
+- **变更原因**：去 RAG 化后的残留——`ensure_dirs` 仍创建 `data/vectors/` 空目录（RAG 遗迹），本次移除
+- **代码版本**：commit `9d49ba6`（chore: remove RAG-era vectors_dir）
+- **是否重建教材**：否
+- **是否重导 vault**：否
+- **验证结果**：本地 pytest **188 passed** 零回归；部署后 config.py vectors 引用 0 / systemd active / 首页 200 / `/api/health` 401（鉴权中间件正常）/ 服务器 `data/vectors` 空目录已删
+- **已知例外**：无（部署前已备份服务器 config.py → `config.py.bak_20260830_p12`）
