@@ -97,15 +97,11 @@ class Settings(BaseSettings):
         return self.data_dir / "build"
 
     @property
-    def vectors_dir(self) -> Path:
-        return self.data_dir / "vectors"
-
-    @property
     def quota_file(self) -> Path:
         return self.data_dir / "quota.json"
 
     def ensure_dirs(self) -> None:
-        for d in (self.data_dir, self.raw_dir, self.md_dir, self.build_dir, self.vectors_dir):
+        for d in (self.data_dir, self.raw_dir, self.md_dir, self.build_dir):
             d.mkdir(parents=True, exist_ok=True)
 
 
