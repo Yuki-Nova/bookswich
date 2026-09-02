@@ -30,7 +30,7 @@ RE_LEVEL2_DOT = re.compile(r"^\s*(\d+)\.(\d+)(\.\d+)?\s+\S")          # 2.1 / 2.
 RE_LEVEL2_CN = re.compile(rf"^\s*{CN_NUM}、\S")                       # 一、
 RE_LEVEL3 = re.compile(rf"^\s*[（(]\s*{CN_OR_AR}\s*[）)]\s*\S")        # （一）/ (1) / （ 2 ）
 RE_BOARD = re.compile(
-    r"^\s*(思考与练习|习题|上机训练题|内容提要|本章内容提要|参考答案|知识拓展|知识链接|"
+    r"^\s*(思考与练习|习题|习题解答|上机训练题|内容提要|本章内容提要|参考答案|知识拓展|知识链接|"
     r"SPSS软件应用提要|附录|索引|参考文献|目录|目\s*录)\s*[一二三四五六七八九十\d]*\s*$"
 )
 # 目录行：章节编号 + 标题 + 页码（如 "第五章 大数定律与中心极限定理……129"）。
@@ -224,6 +224,16 @@ def _norm_title(t: str) -> str:
     return t
 
 
+def _norm_title_relaxed(t: str) -> str:
+    """标题宽松归一化（2026-09-02）：_norm_title 基础上把中文「一」归一为 -。
+
+    用于 board 区域内 ar 章标题的重复检测——书末习题解答区按章分组的标题
+    与入库章标题存在 OCR 变体（「紫外—可见」→「紫外一可见」），精确比对
+    会漏网产生伪章（回归 b16 药物分析化学）。
+    """
+    return _norm_title(t).replace("一", "-")
+
+
 def _extract_toc_titles(batches: list[dict]) -> set[str]:
     """从目录页提取章节标题集合（去编号、去页码），用于 hash 兜底过滤。
 
@@ -387,6 +397,7 @@ def rebuild_v2(batches: list[dict], book_title: str = "") -> dict:
       4. 目录页批次（目录行占比 >50%）整批跳过（P0-1）。
     """
     chapters: list[dict] = []
+    chapter_titles_seen: set[str] = set()  # 已入库章标题（宽松归一化），board 区域重复 ar 章降级用
     cur: dict | None = None
     stack: list[dict] = []              # 当前路径节点，stack[-1] 为正文归属叶子
     board_node: dict | None = None
@@ -509,14 +520,33 @@ def rebuild_v2(batches: list[dict], book_title: str = "") -> dict:
                     heading = Heading(1, stripped.lstrip("#").strip(), 0, kind="hash")
 
             # hash 风格统一过滤：章标题必须在目录白名单内
-            if style == "hash" and heading is not None and heading.level == 1 and toc_titles:
+            # （kind="ar" 阿拉伯数字章豁免：toc_titles 是去编号标题，带编号
+            #   直接比对必失败会误杀真章——回归 b16 药物分析化学，2026-09-02）
+            if (
+                style == "hash"
+                and heading is not None
+                and heading.level == 1
+                and toc_titles
+                and heading.kind != "ar"
+            ):
                 h_title = _norm_title(heading.title.lstrip("·•").strip())
                 if h_title not in toc_titles:
                     heading = None
 
             # 特殊板块区域：区域内标题行降级为内容，直到新章
+            # （2026-09-02：ar 数字章标题若已是入库章——书末习题解答区按章
+            #   分组的重复标题——不退出区域而是降级；首次出现的 ar 真章仍退出
+            #   ——回归 b16 药物分析化学 batch_18 习题解答区）
             if board_node is not None:
-                if heading is not None and heading.level == 1 and not heading.board:
+                if (
+                    heading is not None
+                    and heading.level == 1
+                    and not heading.board
+                    and (
+                        heading.kind != "ar"
+                        or _norm_title_relaxed(heading.title) not in chapter_titles_seen
+                    )
+                ):
                     board_node = None
                 else:
                     if heading is not None and heading.board:
@@ -561,20 +591,47 @@ def rebuild_v2(batches: list[dict], book_title: str = "") -> dict:
                             _toc_match(heading.title) if toc_active else (True, None)
                         )
                         if toc_active and not toc_ok:
-                            # 伪章（正文引用的条文、目录残渣）：标题行降级为内容
-                            if cur is not None:
-                                _attach_content(stack[-1] if stack else cur, line)
-                            elif not in_pre_matter:
-                                skipped.append(line)
-                            continue
-                        else:
-                            in_pre_matter = False
-                            sec_kind = None
-                            pr = f"p{toc_page}" if toc_page else page_range
-                            cur = _new_node(heading.title, 1, pr)
-                            chapters.append(cur)
-                            stack = [cur]
-                            continue
+                            # 目录漏录补锚：正文真「第x章」标题（MinerU 标记过、标题长度合理、
+                            # 章号序进、非「条文引用」形态）→ 补锚入库。
+                            # 回归：b17 民法学目录 OCR 把「第二章 人格权法」识别成
+                            # 「第二节 人格权法」→ 白名单缺章 → 真章被当伪章吞掉（2026-09-02）。
+                            # 防误伤：伪章（正文引用的法规条文）常带引号或「共 N 条」，
+                            # 且章号不序进（如 第一章 总则 出现在第一章真章之后），三层条件拦截。
+                            # 注：补锚成功后 toc_ok=True，须与正常命中共用下方入库代码——
+                            # 不能用 if/else 结构（分支内改 toc_ok 无法让控制流回跳 else）。
+                            m_ch = re.match(rf"^第\s*({CN_OR_AR})\s*章\s*(.*)$", heading.title)
+                            if m_ch:
+                                _body = m_ch.group(2).strip()
+                                _prev_no = 0
+                                for _c in chapters:
+                                    _cm = re.match(rf"^第\s*({CN_OR_AR})\s*章", _c["title"])
+                                    if _cm:
+                                        _prev_no = max(_prev_no, cn_to_int(_cm.group(1)))
+                                if (
+                                    line.lstrip().startswith("#")
+                                    and 2 <= len(_body) <= 30
+                                    and cn_to_int(m_ch.group(1)) > _prev_no
+                                    and not re.search(r'[“”"]', _body)
+                                    and not re.search(r"共\s*\d+\s*条", _body)
+                                ):
+                                    toc_ok = True
+                                    toc_page = None
+                                    warnings.append(f"目录漏录，正文补锚：{heading.title}")
+                            if not toc_ok:
+                                # 伪章（正文引用的条文、目录残渣）：标题行降级为内容
+                                if cur is not None:
+                                    _attach_content(stack[-1] if stack else cur, line)
+                                elif not in_pre_matter:
+                                    skipped.append(line)
+                                continue
+                        in_pre_matter = False
+                        sec_kind = None
+                        pr = f"p{toc_page}" if toc_page else page_range
+                        cur = _new_node(heading.title, 1, pr)
+                        chapters.append(cur)
+                        chapter_titles_seen.add(_norm_title_relaxed(heading.title))
+                        stack = [cur]
+                        continue
                     else:
                         if cur is None:
                             if in_pre_matter:
