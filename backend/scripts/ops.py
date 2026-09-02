@@ -10,6 +10,8 @@
 """
 import argparse
 import io
+import json
+import re
 import shutil
 import sys
 import zipfile
@@ -37,7 +39,25 @@ def cmd_rebuild(book_id: int, title: str, out: str | None = None, dry_run: bool 
         print("  dry-run：跳过实际执行（将执行 structure.run）")
         return
     st = structure.run(book_id, title)
-    print(f"  完成：{len(st.get('chapters', []))} 章（pages {st.get('pages_covered','')}）")
+    # run() 返回 {structure_file, outline_file, report}，不是 structure dict——
+    # 章节数/pages 从 outline 报告文本解析，兜底读落盘 structure.json
+    report = st.get("report", "")
+    m_ch = re.search(r"章节数：(\d+)", report)
+    m_pg = re.search(r"覆盖页数：(\S+)", report)
+    nch = 0
+    if not m_ch:
+        try:
+            nch = len(
+                json.loads(Path(st["structure_file"]).read_text(encoding="utf-8")).get(
+                    "chapters", []
+                )
+            )
+        except Exception:
+            nch = 0
+    else:
+        nch = int(m_ch.group(1))
+    pages = m_pg.group(1) if m_pg else ""
+    print(f"  完成：{nch} 章（pages {pages}）")
     print(f"  产物: {settings.build_dir / f'b{book_id}_{title}'}")
 
 
