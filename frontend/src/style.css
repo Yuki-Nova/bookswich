@@ -57,6 +57,15 @@
   --shadow-2: 0 2px 12px rgba(0, 0, 0, 0.45);
   --shadow-3: 0 8px 32px rgba(0, 0, 0, 0.55);
   --glow-accent: 0 0 0 1px var(--accent-ring), 0 0 28px rgba(229, 177, 79, 0.14);
+
+  /* ── 纸墨·新文人设计系统等效令牌映射 ── */
+  --color-canvas: var(--bg);
+  --color-surface: var(--surface-1);
+  --color-ink: var(--text);
+  --color-ink-muted: var(--text-2);
+  --color-border: var(--line);
+  --color-amber: var(--accent);
+  --color-seal: #d4a359;
 }
 
 * { box-sizing: border-box; }
