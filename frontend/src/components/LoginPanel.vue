@@ -50,19 +50,19 @@ async function login() {
 
 <style scoped>
 .login-wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh;
-  background: var(--bg, #141820); }
+  background: var(--bg); }
 .login-card { width: 320px; padding: 40px 32px; border-radius: 14px; text-align: center;
-  background: var(--card, #1b2130); border: 1px solid rgba(255, 216, 102, .12);
+  background: var(--surface-1); border: 1px solid var(--accent-soft);
   box-shadow: 0 12px 40px rgba(0,0,0,.4); }
 .login-logo { width: 56px; height: 56px; margin: 0 auto 14px; border-radius: 14px;
-  background: linear-gradient(135deg, #ffd866, #ff9a3c); color: #141820;
+  background: var(--grad); color: var(--on-accent);
   display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 800; }
-.login-title { margin: 0 0 4px; font-size: 22px; color: #f0f2f6; }
-.login-sub { margin: 0 0 26px; font-size: 13px; color: #8a92a6; }
+.login-title { margin: 0 0 4px; font-size: 22px; color: var(--text); }
+.login-sub { margin: 0 0 26px; font-size: 13px; color: var(--text-2); }
 .login-input { width: 100%; padding: 11px 14px; margin-bottom: 16px; border-radius: 8px;
-  border: 1px solid #333c4e; background: #11151f; color: #f0f2f6; font-size: 15px;
+  border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--text); font-size: 15px;
   box-sizing: border-box; }
-.login-input:focus { outline: none; border-color: #ffd866; }
+.login-input:focus { outline: none; border-color: var(--accent); }
 .login-btn { width: 100%; padding: 11px; font-size: 15px; }
-.login-error { margin: 12px 0 0; color: #ff6b6b; font-size: 13px; }
+.login-error { margin: 12px 0 0; color: var(--err); font-size: 13px; }
 </style>

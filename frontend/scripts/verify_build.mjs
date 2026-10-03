@@ -34,8 +34,8 @@ export const REQUIRED_TEXT = [
 
 /** 必须出现的 CSS 设计 token / 签名样式（暗色工作台 v3 的锚点）。匹配时容忍压缩（去空白）。 */
 export const REQUIRED_CSS = [
-  '--accent: #e5b14f',   // 金色签名色
-  '--bg: #0b0d11',       // 深炭画布
+  '--accent: #e05256',   // 朱砂印签名色（2026-10-03 由金 #e5b14f 统一而来）
+  '--bg: #121417',       // 玄墨画布（与博客暗色态同源）
   'color-scheme: dark',  // 深色模式声明（压缩后为 color-scheme:dark）
   '.rail',               // MinerU 式可折叠边栏
   '.workspace',

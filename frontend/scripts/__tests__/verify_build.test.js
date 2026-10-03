@@ -38,13 +38,13 @@ describe('verify_build · analyze', () => {
     const { js } = validText()
     const r = analyze(js, '.rail .workspace')
     expect(r.ok).toBe(false)
-    expect(r.missingCss).toContain('--accent: #e5b14f')
+    expect(r.missingCss).toContain('--accent: #e05256')
   })
 
   it('CSS 压缩（去空格）也能命中 design token → 不误报', () => {
     // Real 产物是压缩后的 index-*.css，color-scheme: dark 变成 color-scheme:dark
     const js = REQUIRED_TEXT.join(' ')
-    const css = 'html{color-scheme:dark}body{--accent:#e5b14f;--bg:#0b0d11}.rail{}.workspace{}'
+    const css = 'html{color-scheme:dark}body{--accent:#e05256;--bg:#121417}.rail{}.workspace{}'
     const r = analyze(js, css)
     expect(r.ok).toBe(true)
     expect(r.missingCss).toEqual([])
