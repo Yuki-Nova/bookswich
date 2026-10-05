@@ -126,7 +126,12 @@ npm test                              # vitest 18 用例
 npm run verify:build                  # 前端构建门禁（vite build + 产物检查）
 ```
 
-基线实测于 2026-10-05：pytest 182 通过 / vitest 18 通过 / verify:build 通过。
+基线实测于 2026-10-05：pytest 182 通过（其中 8 个依赖真实教材产物，无数据时 skip） /
+vitest 18 通过 / verify:build 通过。
+
+> ⚠ `data/` 已于 2026-10-05 清空（教材数据需重新上传解析）。无教材数据时
+> `test_exporter` 6 个 + `test_table_md` 2 个会因缺 `data/build/b1_*/structure.json` 自动 skip，
+> 属预期行为；灌入数据后自动恢复。
 
 ## 生产部署（阿里云 ECS）
 

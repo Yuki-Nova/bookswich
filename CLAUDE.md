@@ -184,32 +184,43 @@ npm run verify:build   # 前端门禁（vite build + verify_build 产物检查�
 .venv\Scripts\python.exe -c "from app.services import structure; print(structure.run(1, '医药应用概率统计'))"
 ```
 
-## 数据现状（2026-10-05 实测）
+## 数据现状（2026-10-05 清空后）
 
-**DB（`data/kb.db`，books 表）3 本**：
+**`data/` 已按用户要求清空**（仅保留空目录 + `build_golden_samples.json` 黄金样本基线 2.6KB）。
+清理前备份的数据库 `kb.db.bak-20261005` 也已删除。
 
-| id | 书名 | 页数 | 状态 | 进度 | 配额页 |
-|---|---|---|---|---|---|
-| 1 | 医药应用概率统计 | 369 | parsed | 15/15 | 325 |
-| 6 | 研究生入学考试分析化学学习指导与试题精解 | 316 | parsed | 13/13 | 266 |
-| 8 | 工业药剂学（吴正红 周建平） | 830 | structure_ok | 34/34 | 105 |
+清空前的内容（**均不可从 git 恢复**，`data/` 被 gitignore）：
 
-**磁盘产物（`data/md`、`data/build`）4 个目录**——比 DB 多一个
-`b8_基础医学概论 …`：该目录有 `page_index.json`（1.6MB，2026-09-14）但**无 structure.json/outline.md**，
-且 DB 无对应记录（已删教材或历史残留）。
+| 项 | 文件/大小 | 说明 |
+|---|---|---|
+| `raw/` | 5 个 PDF / 320.2MB | 3 个 81MB 重复测试书 + 分析化学 10.9MB + 工业药剂学 81.5MB |
+| `md/` | 1310 / 37.1MB | 4 本教材 batch md + content_list + images/ |
+| `build/` | 10 / 11.2MB | structure.json / outline.md / page_index.json |
+| `kb.db` | 5.2MB | books 表 3 本（id1 概率统计 369 页 / id6 分析化学 316 页 / id8 工业药剂学 830 页） |
+| `quota.json` | — | `priority_pages_used=830`（已消耗 MinerU 配额，重建需重新扣） |
 
-- 孤儿图片：**工业药剂学 267 个、8.3MB**（MinerU 重跑 hash 变化残留，见踩坑速查）
-- `data/raw` 4 个 PDF：3 个 81MB 测试书（同名重复上传）+ 分析化学 10.9MB + 工业药剂学 81.5MB
-- 清理前数据库备份：`data/kb.db.bak-20261005`（5.3MB）
+**清空后的测试状态**：pytest 182 → **174 通过 / 0 失败 / 8 skip**。
+8 个 skip 均属预期（依赖 b1 真实产物，代码内 `pytest.skip`）：
+`test_exporter`×6（`test_full_export_*` 系列 + OSS 模式 2 个）、`test_table_md`×2。
+重新灌入教材数据后会自动恢复。
 
-### 两处已知产物管理问题（2026-10-05 发现，未修）
+### 本轮修复的两个产物管理问题（2026-10-05）
 
-1. **`tests/test_parse_failure.py` 会污染真实 `data/md/`**：`api_env` 用 `monkeypatch` 把
-   `settings.data_dir` 指向 tmp_path，但 `POST /books/1/parse` 启动的**后台线程**在 monkeypatch
-   撤销后才执行，此时 `settings.md_dir` 已恢复为真实值 → 每次跑全量 pytest 都会在
-   `data/md/` 下生成空的 `b1_测试书/`。（已定位：单跑该文件即复现）
-2. **`audit_orphans` 按 `b<id>` 前缀比对**：同 id 不同书名（如 `b8_工业药剂学` 与
-   `b8_基础医学概论`）前缀相同 → 无 DB 记录的基础医学概论被判定为「非孤儿」，审计漏报。
+1. ✅ **`tests/test_parse_failure.py` 污染真实 `data/md/`**（已修）：`api_env` 用 `monkeypatch`
+   改 `settings.data_dir`，但 `POST /parse` 起的**后台线程**在 monkeypatch 撤销后才执行，
+   `settings.md_dir` 已恢复真实值 → 每次全量 pytest 生成空的 `b1_测试书/`。
+   修法：fixture 内把 `threading.Thread` 换成同步执行（不侵入生产代码），后台任务在
+   monkeypatch 生效期内跑完。
+2. ✅ **`get_conn` 在 `data/` 不存在时崩溃**（已修，`app/db.py`）：sqlite3 抛
+   `unable to open database file`（实测 `test_db_concurrency::test_get_conn_busy_timeout` 失败）。
+   修法：`get_conn` 连接前 `path.parent.mkdir(parents=True, exist_ok=True)`。
+
+### 仍未处理
+
+- **`audit_orphans` 同 id 不同书名漏报**：`scan_dir_diff` 按 `b<id>` 前缀比对，而目录名是
+  `b<id>_<title>` → 同 id 不同书名时无 DB 记录的目录被误判「非孤儿」。
+- **孤儿图片清理**：工业药剂学曾统计到 267 个 / 8.3MB（产物已随本次清空一并删除）；
+  今后清理走 `scripts/audit_orphans.py --dry-run` → `--delete`。
 
 ## 待办路线（docs/TODO.md 完整版）
 

@@ -206,21 +206,28 @@ PDF → [MinerU 分批解析 25页/批 + 缓存 + 配额] → [结构重建 规�
   - 删除 `data/v9_probe/`（176 文件，分支探针产物）、`export/{shots,ch3_pages,.obsidian}`、
     `export/rebuilt_gated_测试.md`、`export/verify_katex.py`、`export/verify_sbs.py`
   - 清理后验证：pytest 182 全绿，与清理前一致
-- [ ] **F2 / P1** 修 `tests/test_parse_failure.py` 污染真实 `data/md/`（2026-10-05 定位，未修）
+- [x] **F2 / P1** 修 `tests/test_parse_failure.py` 污染真实 `data/md/`（2026-10-05 已修）
   - 现象：跑一次全量 pytest 即在 `data/md/` 生成空的 `b1_测试书/`
   - 原因：`api_env` 用 `monkeypatch` 改 `settings.data_dir` → tmp_path，但 `POST /books/1/parse`
     起的**后台线程**在 monkeypatch 撤销后才跑，此时 `settings.md_dir` 已恢复为真实值
-  - 方案候选：① 测试内 patch `routes` 的后台线程为同步执行；② 解析入口把 md_dir 作为参数显式传入
-    （治本，同时消除其他后台任务同类风险）；③ 测试后 fixture 清理残留目录（治标）
+  - 修法：fixture 内把 `threading.Thread` 替换为同步执行（保留 `daemon`/`name` 参数剥离），
+    后台任务在 monkeypatch 生效期内跑完；**不侵入生产代码**。已验证单跑与全量跑均无残留
+- [x] **F6 / P1** `get_conn` 在 `data/` 目录缺失时崩溃（2026-10-05 已修）
+  - 现象：`sqlite3.OperationalError: unable to open database file`
+    （清空 data 后 `test_db_concurrency::test_get_conn_busy_timeout` 失败）
+  - 修法：`app/db.py` 的 `get_conn` 连接前 `path.parent.mkdir(parents=True, exist_ok=True)`
+- [x] **F7 / P2** 清空全部教材数据（2026-10-05，用户决策）
+  - 删除 `data/{raw,md,build}`、`kb.db`、`kb.db.bak-20261005`、`quota.json`；
+    保留空 `data/` 与 `build_golden_samples.json`（黄金样本基线 2.6KB）
+  - 释放约 **378.8MB / 1331 文件**；⚠ 已消耗 MinerU 配额 830 页不可回收，重建需重新解析
+  - 清空后 pytest：182 → **174 通过 / 0 失败 / 8 skip**（skip 均依赖真实教材产物，代码内已 skip，
+    重新灌数据后自动恢复）
 - [ ] **F3 / P2** `audit_orphans` 同 id 不同书名漏报（2026-10-05 定位，未修）
   - `scan_dir_diff` 按 `b<id>` 前缀比对，而目录名是 `b<id>_<title>`：`b8_工业药剂学` 与
     `b8_基础医学概论`（DB 无记录）前缀相同 → 后者被误判为「非孤儿」，审计不报
-  - 现状：磁盘 4 个 md/build 目录，DB 仅 3 本，审计却报 0 孤儿
-- [ ] **F4 / P2** 处理 `b8_基础医学概论` 产物（待用户确认）
-  - 仅有 `page_index.json`（1.6MB，2026-09-14），无 `structure.json`/`outline.md`，DB 无记录
-  - 二选一：补 DB 记录并重建（若教材仍要用）或删除目录（若已弃用）
-- [ ] **F5 / P2** 孤儿图片 267 个 / 8.3MB（工业药剂学，MinerU 重跑 hash 变化残留）
-  - 清理命令：`backend/scripts/audit_orphans.py --dry-run` 确认后 `--delete`
+- [ ] **F4 / P2** ~~处理 `b8_基础医学概论` 产物~~ — 已随 F7 数据清空一并删除，无需处理
+- [ ] **F5 / P2** ~~孤儿图片 267 个 / 8.3MB~~ — 已随 F7 数据清空一并删除；
+      今后清理走 `scripts/audit_orphans.py --dry-run` → `--delete`
 
 ### E. 远期能力
 

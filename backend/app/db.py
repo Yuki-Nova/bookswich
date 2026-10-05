@@ -35,9 +35,14 @@ def get_conn(db_path: Path | None = None) -> sqlite3.Connection:
 
     每次调用新建连接、`with` 内短事务（项目约定，无长连接）；
     busy_timeout 让写冲突时等待而非立即抛 database is locked。
+
+    F2（2026-10-05）：连接前确保数据库所在目录存在——data/ 被清空或首次启动时
+    sqlite3 会抛 `unable to open database file`（实测 test_db_concurrency 因此失败）。
     """
+    path = Path(db_path or settings.db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)  # F2：目录缺失时自动建，避免 unable to open
     conn = sqlite3.connect(
-        db_path or settings.db_path,
+        str(path),
         timeout=30,  # 连接级 busy 等待，与下方 PRAGMA 一致
     )
     conn.row_factory = sqlite3.Row

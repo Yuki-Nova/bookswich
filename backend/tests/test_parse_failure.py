@@ -131,8 +131,39 @@ def test_parse_book_no_retry_on_business_failure(tmp_path, monkeypatch):
 
 @pytest.fixture
 def api_env(tmp_path, monkeypatch):
-    """TestClient 环境：1 本无解析的教材。"""
+    """TestClient 环境：1 本无解析的教材。
+
+    F2（2026-10-05）：`POST /books/{id}/parse` 在后台线程里跑，而 monkeypatch 改的
+    `settings.data_dir` 只在本测试函数内有效——线程晚于 monkeypatch 撤销才执行时，
+    `settings.md_dir` 已恢复成真实值，于是往真实 `data/md/` 写 `b1_测试书/`（每次跑
+    全量 pytest 都会留下垃圾）。这里把 `threading.Thread` 换成同步执行，让后台任务
+    在 monkeypatch 生效期内完成，彻底消除时序污染。
+    """
     _fresh_env(tmp_path, monkeypatch)
+
+    def _sync_thread(*args, **kwargs):
+        """立即执行 target，替代 threading.Thread（target 位置/关键字参数均兼容）。
+
+        只保留 target 真正接受的参数：`daemon`/`name` 等是 Thread 自身的构造参数，
+        传给 target 会 TypeError。
+        """
+        kwargs.pop("daemon", None)
+        kwargs.pop("name", None)
+        target = kwargs.pop("target", None)
+        if target is None and args:
+            target, args = args[0], args[1:]
+        assert target is not None, "Thread 未传 target"
+        target(*args, **kwargs)
+        return _FakeThread()
+
+    class _FakeThread:
+        """最小 Thread 替身：只需支持 routes 里的 start()。"""
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(threading, "Thread", _sync_thread)
+
     from app.db import get_conn as _gc
 
     with _gc() as conn:
