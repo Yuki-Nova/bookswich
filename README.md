@@ -98,27 +98,35 @@ bookswich/
 │   │   └── services/
 │   │       ├── mineru_client.py # 分批解析 + 缓存完整性 + 配额
 │   │       ├── structure.py     # 规则法+目录驱动重建（核心）
-│   │       ├── exporter.py      # 导出 + 表格门禁/净化链 + 深度清洗
+│   │       ├── exporter.py      # 导出 + 表格大一统(全 HTML) + 净化链 + 深度清洗
 │   │       ├── verify_export.py # 导出物静态回归扫描（A4）
 │   │       ├── audit_orphans.py # 孤儿产物只读审计（B3）
 │   │       ├── compare.py       # 质检报告 + 按章 diff
-│   │       └── oss_images.py    # OSS 图片上传（幂等 + 部分失败处理 B4）
-│   └── tests/                   # pytest 176 用例
-├── frontend/src/                # Vue 3 单页（上传/进度/下载/对比）
+│   │       ├── oss_images.py    # OSS 图片上传（幂等 + 部分失败处理 B4）
+│   │       └── auth.py          # 访问控制：api_token 程序通道 + web_password 会话通道（B5）
+│   ├── scripts/                 # 运维 CLI：ops / vault_health / server_health / audit_* 等
+│   └── tests/                   # pytest 182 用例
+├── frontend/src/                # Vue 3 单页（上传/进度/下载/对比/登录）
 ├── data/                        # raw/ + md/<book>/ + build/<book>/ + kb.db + quota.json
 ├── export/                      # 已导出 Markdown
 └── docs/                        # TODO.md（方案/里程碑）+ TECH.md（技术文档）
 ```
 
+> 目录约定：`data/` 与 `export/` 均为运行时产物，已在 `.gitignore` 忽略；
+> `export/` 只放导出结果，调试脚本一律放 `backend/scripts/`。
+
 ## 测试
 
 ```powershell
 cd backend
-.venv\Scripts\python.exe -m pytest    # 176 用例全绿
+$env:PYTHONIOENCODING='utf-8'    # Windows 控制台中文输出必需
+.venv\Scripts\python.exe -m pytest    # 182 用例全绿
 cd ../frontend
 npm test                              # vitest 18 用例
 npm run verify:build                  # 前端构建门禁（vite build + 产物检查）
 ```
+
+基线实测于 2026-10-05：pytest 182 通过 / vitest 18 通过 / verify:build 通过。
 
 ## 生产部署（阿里云 ECS）
 

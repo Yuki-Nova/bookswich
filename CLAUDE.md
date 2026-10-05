@@ -27,10 +27,11 @@
 
 | 环节 | 选型 |
 |------|------|
-| 后端 | Python FastAPI（uvicorn，127.0.0.1:8000） |
-| 前端 | Vue 3 + Vite（127.0.0.1:5173，仅上传/进度/下载页） |
-| 解析 | MinerU 云 API（分批 25 页，落盘缓存，配额记账） |
-| 存储 | SQLite（data/kb.db，仅 books 教材元数据表） |
+| 后端 | Python FastAPI（uvicorn，127.0.0.1:8000；生产 8001 + nginx 反代） |
+| 前端 | Vue 3 + Vite（127.0.0.1:5173）+ KaTeX；登录页 + 上传/进度/下载/对比 |
+| 解析 | MinerU 云 API（分批 25 页，落盘缓存 + 图片落盘，配额双维度记账） |
+| 存储 | SQLite（data/kb.db，books 表；WAL + busy_timeout 30s） |
+| 访问控制 | `auth.py`：`api_token`（程序）+ `web_password`（浏览器会话 token，B5） |
 
 ## 三段流水线
 
@@ -53,31 +54,57 @@ bookswich/
 │   │   ├── api/routes.py        # REST 接口：books/upload/parse/chapters/export/quota
 │   │   └── services/
 │   │       ├── mineru_client.py # 分批解析 + 落盘缓存 + 配额记账(quota.json)
-│   │       ├── structure.py     # 规则法结构重建（核心模块）
-│   │       └── exporter.py      # 导出 rebuilt/raw/按章 + 表格门禁转换（format_table_md/_table_quality_gates）
-│   ├── tests/                   # pytest（175 用例）
+│   │       ├── structure.py     # 规则法+目录驱动结构重建（核心模块）
+│   │       ├── exporter.py      # 导出 rebuilt/raw/按章 + 表格大一统(默认全 HTML)
+│   │       ├── verify_export.py # 导出物静态回归扫描 8 规则（A4）
+│   │       ├── audit_orphans.py # DB vs 磁盘孤儿产物只读审计（B3）
+│   │       ├── compare.py       # 质检报告 + 按章 raw/rebuilt diff
+│   │       ├── oss_images.py    # OSS 图片上传（幂等 + 部分失败降级 B4）
+│   │       └── auth.py          # api_token 程序通道 + web_password 会话通道（B5）
+│   ├── scripts/                 # 运维 CLI（只读优先，删改默认 dry-run）
+│   │   ├── ops.py               # rebuild/export/import 子命令
+│   │   ├── vault_health.py      # vault 体检
+│   │   ├── server_health.py     # --check 健康检查 / --cleanup 备份清理
+│   │   ├── audit_orphans.py     # 孤儿产物审计（默认 dry-run）
+│   │   ├── audit_tables.py      # 真实教材表格公式分布只读审计
+│   │   ├── golden_samples.py    # 黄金样本基线采集/校验
+│   │   ├── smoke_playwright.py  # 生产冒烟（console/5xx 收集）
+│   │   └── verify_export.py     # 导出物扫描 CLI
+│   ├── tests/                   # pytest（182 用例）
 │   │   ├── conftest.py          # 共享 fixture（rebuilt_full 全书导出）
 │   │   ├── test_exporter.py     # 导出/公式规范化/OSS 外链
 │   │   ├── test_structure_arabic.py  # 阿拉伯数字章/节标题识别
-│   │   └── test_table_md.py     # 表格门禁 + HTML→Markdown 转换
+│   │   ├── test_table_md.py     # 表格门禁 + HTML→Markdown 转换（md 模式）
+│   │   ├── test_toc_driven.py   # P0-5 目录驱动
+│   │   ├── test_html_boundary.py# HTML 表格与标题边界（A1）
+│   │   ├── test_clean_export.py / test_verify_export.py / test_compare.py
+│   │   ├── test_api_regression.py / test_auth.py / test_quota.py
+│   │   ├── test_parse_failure.py / test_oss_failure.py / test_db_concurrency.py
+│   │   └── test_golden_samples.py / test_audit_orphans.py / test_logging.py
 │   ├── pyproject.toml           # [tool.pytest.ini_options] testpaths=["tests"]
 │   ├── requirements.txt
-│   └── .env                     # MINERU_API_KEY（不入库）
+│   └── .env                     # MINERU_API_KEY + web_password + OSS_*（不入库）
 ├── frontend/
 │   └── src/
-│       ├── App.vue              # 上传/下载单页
-│       ├── components/UploadPanel.vue
-│       └── style.css
+│       ├── App.vue              # 单页：登录 + 上传/进度/下载/对比
+│       ├── auth.js              # authFetch（统一带 X-Auth-Token）+ authedUrl
+│       ├── components/          # UploadPanel/BookDetail/ComparePanel/ChapterDiff/
+│       │                        # SideBySideView/PdfViewer/SidebarPanel/LoginPanel
+│       ├── composables/useParseTask.js
+│       ├── __tests__/auth.test.js        # vitest
+│       └── style.css            # 纸墨朱砂红设计令牌
 ├── data/
 │   ├── raw/        原始 PDF
 │   ├── md/<book>/  分批解析 Markdown（batch_XX_pN-M.md，文件名即页区间元数据）
 │   │               + content_list JSON + images/（图片文件，md 里相对路径引用）
-│   ├── build/<book>/  structure.json + outline.md（结构重建产物）
-│   ├── kb.db        SQLite（books 教材元数据）
+│   ├── build/<book>/  structure.json + outline.md + page_index.json（结构重建产物）
+│   ├── kb.db        SQLite（books 教材元数据，WAL 模式 + busy_timeout 30s）
 │   └── quota.json   每日配额记账
-├── export/         已导出 Markdown
-└── docs/           TODO.md（方案里程碑）+ TECH.md（技术文档，含废弃 RAG 历史）
+├── export/         已导出 Markdown（只放产物，调试脚本放 backend/scripts/）
+└── docs/           TODO.md（方案里程碑）+ TECH.md（技术文档）+ PRODUCTION.md（生产变更）
 ```
+
+> `data/` 与 `export/` 是运行时产物，已被 `.gitignore` 忽略；`data/kb.db.bak-<日期>` 为清理前人工备份。
 
 ## API 一览（prefix /api）
 
@@ -89,7 +116,15 @@ bookswich/
 - `GET /api/books/{id}/export?format=rebuilt|raw|obsidian&chapter=N&images=local|oss` — 导出 **ZIP**
   （默认 local：书名.md + images/ 子目录，解压即 Obsidian/Typora 可读；`images=oss`：图片上传
   OSS `OSS_BUCKET` 桶，md 引用改公网 URL，zip 只含文本）
-- `GET /quota` — MinerU 配额状态
+- `POST /api/auth/login` — 用 `web_password` 换会话 token（B5 访问控制）
+- `GET /quota` — MinerU 配额状态（页数 + 文件数双维度）
+- `GET /books/{id}/compare` + `GET /books/{id}/compare/chapter/{n}?as=diff|markdown` — 质检报告 / 按章 diff
+- `GET /books/{id}/media/{file_path:path}` — 取教材图片等静态资源（需鉴权，前端用 `authedUrl`）
+- `GET /settings` — 前端运行时配置
+- `POST /books/{id}/import-obsidian` — 按章导入 vault（幂等，强制 OSS 外链）
+- `DELETE /books/{id}` — 删除教材（解析中拒绝）
+
+> 除 `/health` 与首页静态资源外，`/api` 需鉴权：浏览器带 `X-Auth-Token`，程序用 `api_token`。
 
 ## 关键约定（用户明确决策，不可违背）
 
@@ -129,24 +164,52 @@ bookswich/
 .venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 # 测试（backend/ 目录）
-.venv\Scripts\python.exe -m pytest
+$env:PYTHONIOENCODING='utf-8'      # Windows 控制台跑 pytest 必设，否则中文输出 UnicodeDecodeError
+.venv\Scripts\python.exe -m pytest  # 182 用例
 
 # 前端（frontend/ 目录）
 npm install --registry=https://registry.npmmirror.com   # 国内源
 npm run dev        # http://localhost:5173
+npm run test           # vitest 18 用例
 npm run verify:build   # 前端门禁（vite build + verify_build 产物检查），改动后必须跑
 
-# 手动跑结构重建/导出（backend/ 目录，.venv 内）
+# 运维 CLI（backend/ 目录，.venv 内；删改类默认 dry-run）
+.venv\Scripts\python.exe scripts\ops.py rebuild --id 1 --title "医药应用概率统计" --dry-run
+.venv\Scripts\python.exe scripts\vault_health.py --json
+.venv\Scripts\python.exe scripts\server_health.py --check
+.venv\Scripts\python.exe scripts\audit_orphans.py --dry-run
+.venv\Scripts\python.exe scripts\verify_export.py <export.md>
+
+# 手动跑结构重建（backend/ 目录，.venv 内）
 .venv\Scripts\python.exe -c "from app.services import structure; print(structure.run(1, '医药应用概率统计'))"
 ```
 
-## 数据现状（2026-08-06 实测）
+## 数据现状（2026-10-05 实测）
 
-- 教材 1 本：《医药应用概率统计》第 3 版，369 页纯扫描版（读秀/超星，无文本层、无书签、无目录页）
-- 解析 15/15 批完成，配额已用 369/1000 页（quota.json，2026-08-05）
-- 结构重建产物：data/build/b1_医药应用概率统计/（structure.json + outline.md）
-- 导出产物：export/医药应用概率统计.md（整本 871KB）、-第3章.md、-原始MinerU.md
-- RAG 资产已清理：chunks/qa_logs/FTS 表、data/vectors/、backend/eval/、retriever.py、rag_agent.py 均已删除
+**DB（`data/kb.db`，books 表）3 本**：
+
+| id | 书名 | 页数 | 状态 | 进度 | 配额页 |
+|---|---|---|---|---|---|
+| 1 | 医药应用概率统计 | 369 | parsed | 15/15 | 325 |
+| 6 | 研究生入学考试分析化学学习指导与试题精解 | 316 | parsed | 13/13 | 266 |
+| 8 | 工业药剂学（吴正红 周建平） | 830 | structure_ok | 34/34 | 105 |
+
+**磁盘产物（`data/md`、`data/build`）4 个目录**——比 DB 多一个
+`b8_基础医学概论 …`：该目录有 `page_index.json`（1.6MB，2026-09-14）但**无 structure.json/outline.md**，
+且 DB 无对应记录（已删教材或历史残留）。
+
+- 孤儿图片：**工业药剂学 267 个、8.3MB**（MinerU 重跑 hash 变化残留，见踩坑速查）
+- `data/raw` 4 个 PDF：3 个 81MB 测试书（同名重复上传）+ 分析化学 10.9MB + 工业药剂学 81.5MB
+- 清理前数据库备份：`data/kb.db.bak-20261005`（5.3MB）
+
+### 两处已知产物管理问题（2026-10-05 发现，未修）
+
+1. **`tests/test_parse_failure.py` 会污染真实 `data/md/`**：`api_env` 用 `monkeypatch` 把
+   `settings.data_dir` 指向 tmp_path，但 `POST /books/1/parse` 启动的**后台线程**在 monkeypatch
+   撤销后才执行，此时 `settings.md_dir` 已恢复为真实值 → 每次跑全量 pytest 都会在
+   `data/md/` 下生成空的 `b1_测试书/`。（已定位：单跑该文件即复现）
+2. **`audit_orphans` 按 `b<id>` 前缀比对**：同 id 不同书名（如 `b8_工业药剂学` 与
+   `b8_基础医学概论`）前缀相同 → 无 DB 记录的基础医学概论被判定为「非孤儿」，审计漏报。
 
 ## 待办路线（docs/TODO.md 完整版）
 

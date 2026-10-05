@@ -51,9 +51,12 @@ PDF → [MinerU 分批解析 25页/批 + 缓存 + 配额] → [结构重建 规�
 6. `import-obsidian` 强制 oss 模式；导入幂等（清理旧目录）
 7. 禁止为公式渲染牺牲表格格式（2026-08-09 全量转换翻车教训）
 
-## 测试状态
+## 测试状态（2026-10-05 实测）
 
-- [x] pytest **97 用例全绿**（结构/表格门禁/导出/清洗/目录驱动/配额/compare）
+- [x] pytest **182 用例全绿**（结构/表格门禁/导出/清洗/目录驱动/配额/compare/鉴权/并发）
+      > 注：本节此前写「97 用例」为过时数据，2026-08-18 C1 阶段已是 172，当前 182。
+- [x] 前端 vitest **18 用例全过**（`useParseTask` 4 + `auth` 7 + `verify_build` 7）
+- [x] `npm run verify:build` 通过（构建产物门禁：文案入 bundle / 设计 token 入 CSS / 旧类名零残留）
 - [x] 真实数据验证：b1 概率统计（11 章/349 表）、b6/b8/b9/b11（20 章/10 章等）重跑无退化
 - [x] vault 全量体检（2026-08-17）：6 本教材 `VAULT_ALL_CLEAN`（章节一致/表格正常/公式内侧空格 0/双空格 0）
 
@@ -188,8 +191,36 @@ PDF → [MinerU 分批解析 25页/批 + 缓存 + 配额] → [结构重建 规�
 - [x] **U3 / P1** 测试改造：分布表测试改测全 HTML + 新增 md 模式门禁测试（pytest 176 全绿）
 - [x] **U4 / P1** 真实 b1 验证：349 表 100% HTML（原 50% MD→0%）、`<eq>`=0、`$` 配对、
   138 合并表结构完整（rowspan/colspan 无损）
-- [ ] **U5 / P2** 文档同步（PRODUCTION/TECH/TODO/CLAUDE.md）+ 提交
+- [x] **U5 / P2** 文档同步（2026-10-05 完成）
   - ⚠️ **Obsidian 侧需装 html-table-math 插件**（社区插件，MIT）才能渲染 HTML 表内公式——这是大统一的运行时依赖
+  - 已同步：`README.md`（测试基线 182/vitest 18、项目结构、export 目录约定）、
+    `CLAUDE.md`（目录结构、技术栈、API 一览、数据现状 2026-10-05、常用命令）、本文件测试状态
+
+### F. 产物清理与一致性（2026-10-05）
+
+- [x] **F1 / P2** 残余清理（已建 tag `pre-cleanup-20261005` 基线，数据库备份 `data/kb.db.bak-20261005`）
+  - 删除 6 个 0 文件空目录：`backend/{build,md,raw,vectors,tools}`、`example/`
+  - 删除 16 个孤儿 `.pyc`（对应 `.py` 已不存在，来自未合入 main 的分支 `feat/annotation-chain`）
+  - 删除 `.pytest_cache/`、`backend/.pytest_cache/`、`data/logs/`（2026-08-06 旧日志）、
+    `data/md/b1_测试书/`（空目录）、`kb.db-shm`/`kb.db-wal`（WAL 残留）
+  - 删除 `data/v9_probe/`（176 文件，分支探针产物）、`export/{shots,ch3_pages,.obsidian}`、
+    `export/rebuilt_gated_测试.md`、`export/verify_katex.py`、`export/verify_sbs.py`
+  - 清理后验证：pytest 182 全绿，与清理前一致
+- [ ] **F2 / P1** 修 `tests/test_parse_failure.py` 污染真实 `data/md/`（2026-10-05 定位，未修）
+  - 现象：跑一次全量 pytest 即在 `data/md/` 生成空的 `b1_测试书/`
+  - 原因：`api_env` 用 `monkeypatch` 改 `settings.data_dir` → tmp_path，但 `POST /books/1/parse`
+    起的**后台线程**在 monkeypatch 撤销后才跑，此时 `settings.md_dir` 已恢复为真实值
+  - 方案候选：① 测试内 patch `routes` 的后台线程为同步执行；② 解析入口把 md_dir 作为参数显式传入
+    （治本，同时消除其他后台任务同类风险）；③ 测试后 fixture 清理残留目录（治标）
+- [ ] **F3 / P2** `audit_orphans` 同 id 不同书名漏报（2026-10-05 定位，未修）
+  - `scan_dir_diff` 按 `b<id>` 前缀比对，而目录名是 `b<id>_<title>`：`b8_工业药剂学` 与
+    `b8_基础医学概论`（DB 无记录）前缀相同 → 后者被误判为「非孤儿」，审计不报
+  - 现状：磁盘 4 个 md/build 目录，DB 仅 3 本，审计却报 0 孤儿
+- [ ] **F4 / P2** 处理 `b8_基础医学概论` 产物（待用户确认）
+  - 仅有 `page_index.json`（1.6MB，2026-09-14），无 `structure.json`/`outline.md`，DB 无记录
+  - 二选一：补 DB 记录并重建（若教材仍要用）或删除目录（若已弃用）
+- [ ] **F5 / P2** 孤儿图片 267 个 / 8.3MB（工业药剂学，MinerU 重跑 hash 变化残留）
+  - 清理命令：`backend/scripts/audit_orphans.py --dry-run` 确认后 `--delete`
 
 ### E. 远期能力
 
@@ -218,17 +249,21 @@ PDF → [MinerU 分批解析 25页/批 + 缓存 + 配额] → [结构重建 规�
 | 后台解析和轮询造成 SQLite 锁冲突 | 短事务、busy timeout、WAL 评估和并发测试 |
 | OSS 部分失败生成不完整笔记 | 上传结果显式分类；失败时阻止伪成功并保留本地导出 |
 
-## 本轮完成定义
+## 本轮完成定义（A/B/C/D/U 阶段，2026-10-05 复核勾选）
 
-- [ ] HTML 表格标题边界问题修复并有回归测试
-- [ ] HTML 表格公式问题有真实统计和明确产品决策
-- [ ] 五本以上真实教材重建、导出、导入无结构退化
-- [ ] pytest、前端 build、Playwright 冒烟全部通过
-- [ ] 解析失败不会永久停留在 `parsing`
-- [ ] SQLite 并发和 OSS 失败路径经过验证
-- [ ] 生产站点具有整站访问控制
-- [ ] 重建、重导和 vault 体检可以重复执行
-- [ ] `README.md`、`docs/TODO.md`、`docs/TECH.md` 与实际行为一致
+> 以下 9 项在 2026-08-18 各阶段均已完成并有测试/实测证据，此前 checkbox 未同步勾选。
+> 2026-10-05 复核：pytest 182 全绿、vitest 18 全过、`verify:build` 通过。
+
+- [x] HTML 表格标题边界问题修复并有回归测试（A1，`test_html_boundary.py` 5 用例）
+- [x] HTML 表格公式问题有真实统计和明确产品决策（A2/A3，576 表统计 → 维持全 HTML）
+- [x] 五本以上真实教材重建、导出、导入无结构退化（A5，服务器 6 本 vault 体检全过）
+- [x] pytest、前端 build、Playwright 冒烟全部通过（C1–C5）
+- [x] 解析失败不会永久停留在 `parsing`（B2，`test_parse_failure.py` + `recover_stale_parsing`）
+- [x] SQLite 并发和 OSS 失败路径经过验证（B1/B4）
+- [x] 生产站点具有整站访问控制（B5，前端登录方案 A）
+- [x] 重建、重导和 vault 体检可以重复执行（D1/D2，`ops.py` + `vault_health.py`）
+- [x] `README.md`、`docs/TODO.md`、`docs/TECH.md` 与实际行为一致（U5 + F1，2026-10-05）
+      > `docs/PRODUCTION.md` 本次未改；下次生产部署时按模板补记。
 
 ## 明确不做
 
