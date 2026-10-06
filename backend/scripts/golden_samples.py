@@ -8,6 +8,8 @@
     .venv\\Scripts\\python.exe scripts/golden_samples.py --update   # 生成/更新黄金样本基线 JSON
     .venv\\Scripts\\python.exe scripts/golden_samples.py --json     # 机器可读输出
 
+退出码：0 = 校验通过；1 = 发现结构退化；2 = 本地无 build 样本，未执行校验（非通过）。
+
 黄金样本定义（哪些书、关注什么）：
     b1 概率统计        —— 公式/表格密集（本地）
     b6 分析化学        —— 目录驱动章节纠错（本地）
@@ -93,6 +95,23 @@ def main() -> int:
         return 0
 
     baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+
+    # 本地 build 为空时不能报「通过 0/0」——那会让校验形同虚设（2026-10-06 加固）：
+    # 采集不到样本 ≠ 结构没退化，这里返回独立的「未执行」状态码 2，与 0=通过 / 1=退化区分开。
+    if not samples:
+        if args.json:
+            print(json.dumps({
+                "ok": 0,
+                "total": 0,
+                "skipped": "本地无 build 样本，未执行校验",
+                "baseline_books": len(baseline),
+            }, ensure_ascii=False, indent=2))
+        else:
+            print("=== 黄金样本校验（C4）===")
+            print(f"本地无 build 样本（{settings.build_dir} 为空或不存在），本次未执行校验——这不等于通过")
+            print(f"基线仍有 {len(baseline)} 本教材待校验；重新灌入教材后重跑本命令")
+        return 2
+
     ok, failures = verify(samples, baseline)
 
     if args.json:

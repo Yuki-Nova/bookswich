@@ -235,6 +235,11 @@ kept_reasons,kept_merged,kept_cell_too_long}`——被拦截公式表的原因�
 - **C4 黄金样本**：`scripts/golden_samples.py` 固化本地 build 教材的章数/标题为基线
   （`data/build_golden_samples.json`），`--update` 更新/默认校验；`tests/test_golden_samples.py`（2 用例）
   作为「结构/导出规则修改后防退化」的入口。
+  **2026-10-06 加固**：退出码契约 = `0` 通过 / `1` 结构退化 / `2` 本地无 build 样本（未执行校验，
+  **不等于通过**，原先会打印「通过 0/0」并 exit 0）；测试侧子进程显式注入
+  `PYTHONIOENCODING=utf-8` / `PYTHONUTF8=1` 并加 `errors="replace"`（原先依赖外部 shell 变量，
+  Windows 管道下因 cp936/UTF-8 失配只会报出与真因无关的 `TypeError`），且本地无样本时
+  `pytest.skip` 而非假通过。
 
 **测试基线（2026-08-18，含 C5 + U）**：后端 pytest 176 / 前端 vitest 18 / 前端 build+verify_build ✓ / Playwright 冒烟 6/6（console error·pageerror·HTTP 5xx 全零）。
 

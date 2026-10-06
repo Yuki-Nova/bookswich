@@ -164,7 +164,7 @@ bookswich/
 .venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 # 测试（backend/ 目录）
-$env:PYTHONIOENCODING='utf-8'      # Windows 控制台跑 pytest 必设，否则中文输出 UnicodeDecodeError
+$env:PYTHONIOENCODING='utf-8'      # 仅影响控制台中文显示；测试本身已不依赖它（2026-10-06 修）
 .venv\Scripts\python.exe -m pytest  # 182 用例
 
 # 前端（frontend/ 目录）
@@ -199,10 +199,11 @@ npm run verify:build   # 前端门禁（vite build + verify_build 产物检查�
 | `kb.db` | 5.2MB | books 表 3 本（id1 概率统计 369 页 / id6 分析化学 316 页 / id8 工业药剂学 830 页） |
 | `quota.json` | — | `priority_pages_used=830`（已消耗 MinerU 配额，重建需重新扣） |
 
-**清空后的测试状态**：pytest 182 → **174 通过 / 0 失败 / 8 skip**。
-8 个 skip 均属预期（依赖 b1 真实产物，代码内 `pytest.skip`）：
-`test_exporter`×6（`test_full_export_*` 系列 + OSS 模式 2 个）、`test_table_md`×2。
-重新灌入教材数据后会自动恢复。
+**清空后的测试状态（2026-10-06 复核）**：pytest 182 → **173 通过 / 0 失败 / 9 skip**。
+9 个 skip 均属预期（依赖真实产物，代码内 `pytest.skip`）：
+`test_exporter`×6（`test_full_export_*` 系列 + OSS 模式 2 个）、`test_table_md`×2、
+`test_golden_samples::test_golden_samples_verify_ok`×1（`data/build/` 已空，2026-10-06 起改为显式 skip）。
+重新灌入教材数据后会自动恢复。复跑**不需要**先设 `PYTHONIOENCODING`（见下节）。
 
 ### 本轮修复的两个产物管理问题（2026-10-05）
 
@@ -214,6 +215,21 @@ npm run verify:build   # 前端门禁（vite build + verify_build 产物检查�
 2. ✅ **`get_conn` 在 `data/` 不存在时崩溃**（已修，`app/db.py`）：sqlite3 抛
    `unable to open database file`（实测 `test_db_concurrency::test_get_conn_busy_timeout` 失败）。
    修法：`get_conn` 连接前 `path.parent.mkdir(parents=True, exist_ok=True)`。
+
+### 黄金样本测试加固（2026-10-06）
+
+1. ✅ **去掉了子进程编码依赖**（`tests/test_golden_samples.py`）：原先只给父进程 `encoding="utf-8"`，
+   而子进程 stdout 是管道、按系统 ANSI 代码页（本机 cp936）输出中文，解码失败发生在 subprocess
+   自己的 reader 线程里，被吞成 `PytestUnhandledThreadExceptionWarning` → `r.stdout` 变成 `None`，
+   最终只报 `TypeError: argument of type 'NoneType' is not iterable`（实测：不设
+   `PYTHONIOENCODING` 时该用例必失败，报错完全掩盖真因）。
+   修法：注入 `PYTHONIOENCODING=utf-8` / `PYTHONUTF8=1` 并加 `errors="replace"`。
+2. ✅ **封堵「无样本假通过」**：清空 `data/build/` 后 `golden_samples.py` 采集到 0 本样本，
+   原先打印「通过 0/0」并 `exit 0`，校验形同虚设而测试照旧绿灯。
+   现在脚本返回独立退出码 **2 = 未执行校验（非通过）**，测试侧改为
+   `pytest.skip("本地无 build 产物…")`。
+
+**契约变化**：`scripts/golden_samples.py` 的退出码 = `0` 通过 / `1` 结构退化 / `2` 无样本未校验。
 
 ### 仍未处理
 
